@@ -3,6 +3,23 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* ============================================================
+ * Kept — Design System Tokens (kept-design-system.md §2)
+ *
+ * These CSS custom properties are the single source of truth for
+ * every color used in the app. Component code references these via
+ * Tailwind classes (bg-primary, text-muted-foreground, etc.) which
+ * map to these variables.
+ *
+ * Mapping from design doc → shadcn variable names:
+ *   paper       → background (app bg)
+ *   surface     → card (cards, modals)
+ *   ink         → primary (primary text, buttons, logo)
+ *   ink-muted   → muted-foreground (secondary text)
+ *   border      → border (hairlines, dividers)
+ *   accent      → accent (deep pine-green — links, focus rings, actions)
+ * ============================================================ */
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -43,80 +60,142 @@
   --radius-xl: calc(var(--radius) + 4px);
 }
 
+/* ============================================================
+ * Light mode — Kept's primary palette
+ * ============================================================ */
 :root {
   --radius: 0.625rem;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --sidebar: oklch(0.985 0 0);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+
+  /* Core tokens (design doc §2) */
+  --paper: #F6F5F2;
+  --surface: #FFFFFF;
+  --ink: #1B2430;
+  --ink-muted: #5B6470;
+  --border-color: #E3E1DB;
+  --accent-color: #2F5D45;
+
+  /* Status tokens (design doc §2) */
+  --status-active: #2F5D45;
+  --status-expiring: #B8752B;
+  --status-expired: #A6402F;
+  --status-cancelled: #8B8478;
+
+  /* Landing-page-only tokens (design doc §2) */
+  --hero-bg: #141B24;
+  --hero-glow: #3D7A5C;
+
+  /* shadcn mappings */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: #EDECE9;
+  --secondary-foreground: var(--ink);
+  --muted: #EDECE9;
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--accent-color);
+  --accent-foreground: var(--paper);
+  --destructive: var(--status-expired);
+  --border: var(--border-color);
+  --input: var(--border-color);
+  --ring: var(--accent-color);
+
+  /* Charts — subdued palette matching the brand */
+  --chart-1: #2F5D45;
+  --chart-2: #B8752B;
+  --chart-3: #A6402F;
+  --chart-4: #8B8478;
+  --chart-5: #5B6470;
+
+  /* Sidebar */
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: #EDECE9;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--border-color);
+  --sidebar-ring: var(--accent-color);
 }
 
+/* ============================================================
+ * Dark mode — Status tokens lightened, not hue-shifted (§7, §9)
+ * ============================================================ */
 .dark {
-  --background: oklch(0.145 0 0);
-  --foreground: oklch(0.985 0 0);
-  --card: oklch(0.205 0 0);
-  --card-foreground: oklch(0.985 0 0);
-  --popover: oklch(0.205 0 0);
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.922 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(0.269 0 0);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: oklch(0.269 0 0);
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: oklch(0.269 0 0);
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.704 0.191 22.216);
-  --border: oklch(1 0 0 / 10%);
-  --input: oklch(1 0 0 / 15%);
-  --ring: oklch(0.556 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.205 0 0);
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(1 0 0 / 10%);
-  --sidebar-ring: oklch(0.556 0 0);
+  --paper: #141B24;
+  --surface: #1E2736;
+  --ink: #F0EDE8;
+  --ink-muted: #8B9AAF;
+  --border-color: #2D3748;
+  --accent-color: #4A8B6A;
+
+  --status-active: #4A8B6A;
+  --status-expiring: #D4944A;
+  --status-expired: #C85A4A;
+  --status-cancelled: #A09B93;
+
+  --hero-bg: #0D1117;
+  --hero-glow: #4A8B6A;
+
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--surface);
+  --card-foreground: var(--ink);
+  --popover: var(--surface);
+  --popover-foreground: var(--ink);
+  --primary: var(--ink);
+  --primary-foreground: var(--paper);
+  --secondary: #283546;
+  --secondary-foreground: var(--ink);
+  --muted: #283546;
+  --muted-foreground: var(--ink-muted);
+  --accent: var(--accent-color);
+  --accent-foreground: var(--paper);
+  --destructive: var(--status-expired);
+  --border: var(--border-color);
+  --input: var(--border-color);
+  --ring: var(--accent-color);
+
+  --chart-1: #4A8B6A;
+  --chart-2: #D4944A;
+  --chart-3: #C85A4A;
+  --chart-4: #A09B93;
+  --chart-5: #8B9AAF;
+
+  --sidebar: var(--surface);
+  --sidebar-foreground: var(--ink);
+  --sidebar-primary: var(--ink);
+  --sidebar-primary-foreground: var(--paper);
+  --sidebar-accent: #283546;
+  --sidebar-accent-foreground: var(--ink);
+  --sidebar-border: var(--border-color);
+  --sidebar-ring: var(--accent-color);
 }
 
+/* ============================================================
+ * Base styles
+ * ============================================================ */
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
   body {
     @apply bg-background text-foreground;
+  }
+}
+
+/* ============================================================
+ * Geist Mono for money and dates ONLY (design doc §3)
+ * Applied via a .tabular-nums utility class — use this class
+ * on elements displaying amounts, dates, or any columnar
+ * numeric data. Nowhere else.
+ * ============================================================ */
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
