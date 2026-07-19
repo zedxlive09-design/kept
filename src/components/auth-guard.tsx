@@ -1,41 +1,30 @@
 /**
- * Kept — AuthGuard (Phase 2)
+ * Kept — AuthGuard (Phase 2, §3, §11)
  *
  * Client-side route guard — NOT middleware.
- * See §3 and §11: middleware requires an edge/server runtime that
+ * See §3: middleware requires an edge/server runtime that
  * doesn't exist once the app is bundled into Capacitor.
  *
- * Usage: wraps all pages under src/app/(app)/layout.tsx
+ * Wraps with <AuthProvider> so all children (including the nav)
+ * can access user/session/loading via useAuth().
+ * Uses the auth context's user/loading state instead of calling
+ * getSession() directly.
  */
 "use client";
 
-import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase/client";
+import { useEffect } from "react";
+import { AuthProvider, useAuth } from "@/lib/supabase/auth-context";
 
-export function AuthGuard({ children }: { children: React.ReactNode }) {
-  const [checked, setChecked] = useState(false);
+function GuardInner({ children }: { children: React.ReactNode }) {
+  const { user, loading } = useAuth();
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (!session) {
-        window.location.href = "/login";
-        return;
-      }
-      setChecked(true);
-    });
+    if (!loading && !user) {
+      window.location.href = "/login";
+    }
+  }, [loading, user]);
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (!session) {
-        window.location.href = "/login";
-      }
-    });
-
-    return () => subscription.unsubscribe();
-  }, []);
-
-  if (!checked) {
+  if (loading) {
     return (
       <main className="min-h-screen flex items-center justify-center">
         <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin" />
@@ -43,5 +32,18 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
 
+  if (!user) {
+    // Redirect is handled by the effect; render nothing until it fires
+    return null;
+  }
+
   return <>{children}</>;
+}
+
+export function AuthGuard({ children }: { children: React.ReactNode }) {
+  return (
+    <AuthProvider>
+      <GuardInner>{children}</GuardInner>
+    </AuthProvider>
+  );
 }

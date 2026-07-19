@@ -7,4 +7,5 @@
  * immediately, no animation, not a slower version. (design doc §6, §9)
  */
 
-// Phase 7: hero-stamp.ts, scroll-reveal.ts, etc.
+export { initHeroStampAnimation } from './hero-stamp';
+export { initScrollRevealAnimations } from './scroll-reveal';
