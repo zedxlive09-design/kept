@@ -1,0 +1,662 @@
+     1→# Kept — Master Architecture & Build Specification
+     2→
+     3→**Target agent:** GLM 5.2 (Zhipu/Z.ai — 1M context, coding/agent-tuned MoE model)
+     4→**Owner:** Nub Coder (solo dev, no art/marketing budget)
+     5→**Doc status:** Ready to build — replaces the previous "Vaultly" version in full
+     6→**Last updated:** July 19, 2026
+     7→
+     8→> **Naming:** "Vaultly" was already in use, so this version renames the product **Kept** throughout — short, calm, and it reads naturally in-product ("Nothing kept yet," "3 things kept," "Kept safe"). Two backups if you still want options: **Covrd**, **Duekeep**. Whichever you land on, run your own domain/App Store/trademark check before locking it in — I checked for obvious collisions, but I can't do a real clearance search.
+     9→
+    10→> **Companion doc:** `kept-design-system.md` — the full color/type/logo/animation spec. This document references it rather than repeating it. Starter logo and favicon files are attached alongside both docs.
+    11→
+    12→---
+    13→
+    14→## 0. Read This First — Agent Operating Rules
+    15→
+    16→1. **This document is the single source of truth.** Stack and schema decisions are locked — flag it back before substituting anything.
+    17→2. **Every module below opens with a "Why this exists" line before the "what."** That's deliberate: understanding intent produces better judgment calls on the details this doc doesn't spell out. Read the why, not just the how.
+    18→3. **Build in the phase order in §17.** Don't start the landing page polish or the AI pipeline before core CRUD works.
+    19→4. Anything tagged `⚠️ DECISION NEEDED` is genuinely open — stop and ask rather than guessing.
+    20→5. Model IDs go stale fast — Google killed the entire Gemini 2.0 line on June 1, 2026 with weeks of notice. Verify `gemini-3.5-flash` is still current at `ai.google.dev/gemini-api/docs/models` before wiring up §7.
+    21→6. **For GLM 5.2 specifically:** 1M-token context means this whole doc plus the design doc can be loaded in one shot. It benchmarks especially well on frontend/design coding — lean on that for §8 and the design doc rather than defaulting to generic component boilerplate.
+    22→
+    23→---
+    24→
+    25→## 1. Product Overview
+    26→
+    27→**One-liner:** Kept is a personal purchase vault — receipts, warranties, subscriptions, and bills in one place, with AI-assisted data entry and reminders before you lose money to a missed warranty claim or a forgotten renewal.
+    28→
+    29→**Shape of the product now:** a public marketing landing page (§8) that explains the pitch and sells the sign-up, sitting in front of the authenticated app (dashboard, items, subscriptions, reminders, settings). Today it ships as a website. The same codebase is built, from the first line of code, so it can be wrapped as an Android APK via Capacitor later without a rewrite — see §3.
+    30→
+    31→**Target users:** individuals and families managing personal purchases and subscriptions; secondarily freelancers/solo founders tracking tool subscriptions and hardware warranties.
+    32→
+    33→**Core value loop:** land on the marketing page → sign up → snap a photo → AI fills in the form → user confirms → item is tracked → user gets reminded before it expires or renews.
+    34→
+    35→---
+    36→
+    37→## 2. Tech Stack (Locked)
+    38→
+    39→| Layer | Choice | Why this and not the obvious alternative |
+    40→|---|---|---|
+    41→| Frontend framework | Next.js 15 (App Router), **static export** (`output: 'export'`) | Gives the landing page full SSG/SEO benefits *and* produces a plain HTML/JS/CSS bundle that Capacitor can wrap unchanged later. A normal (non-exported) Next.js app with Server Actions can't be bundled into Capacitor without a separate backend deployment — see §3. |
+    42→| Styling | Tailwind CSS + shadcn/ui | Design tokens are defined in `kept-design-system.md`, not shadcn defaults — don't ship unstyled primitives. |
+    43→| Icons | lucide-react | No art budget — icons + color + type carry all visual weight. |
+    44→| Landing page animation | GSAP + ScrollTrigger | Fully free since April 2025 (Webflow's acquisition of GreenSock ended the paid "Club GreenSock" tier) — no licensing cost, no caveat needed. See the design doc for the actual animation plan. |
+    45→| Auth / DB / Storage | Supabase (Postgres 15+, Auth, Storage) | Free tier covers Postgres, 1 GB storage, Auth, Edge Functions, and pg_cron. |
+    46→| AI (receipt extraction) | Google Gemini API — `gemini-3.5-flash`, called from a **Supabase Edge Function** (not a Next.js Route Handler — see §3 and §7) | |
+    47→| Scheduled jobs | Supabase `pg_cron` → Edge Function | Enabled by default on every Supabase project, free tier included. |
+    48→| Transactional email | Resend | Confirm current free-tier send volume at resend.com/pricing before committing — comfortably enough for a solo app's reminder volume, but verify the number rather than trusting a hardcoded assumption here. |
+    49→| Hosting (website) | Vercel (Hobby/free tier) | Serves the static export directly. |
+    50→| Packaging (later) | Capacitor | Wraps the same static build as an Android APK — see §3 and §16. |
+    51→| Image compression | `browser-image-compression` (client-side) | Keeps the 1 GB free storage tier viable much longer — see §6. |
+    52→
+    53→---
+    54→
+    55→## 3. Why This Architecture: Website Today, APK Tomorrow
+    56→
+    57→**Why this module exists:** this is the section that makes the Capacitor requirement real instead of aspirational. Bolting Capacitor onto an app that was built with Server Actions and dynamic server routes means rebuilding the data layer later. Building it in from day one costs almost nothing extra now and saves a rewrite later.
+    58→
+    59→**What static export changes, concretely:**
+    60→
+    61→| Normal Next.js (what the old spec assumed) | This spec (static-export safe) | Why |
+    62→|---|---|---|
+    63→| Server Actions for writes | Supabase client SDK called directly from Client Components | Server Actions need a live Node server at request time. A statically exported bundle running inside a Capacitor WebView has no server behind it at all. |
+    64→| Route Handler (`/api/extract-receipt`) for the Gemini call | Supabase **Edge Function** (`supabase.functions.invoke()`) | Same reasoning — the Edge Function is a separately-hosted HTTPS endpoint that works identically whether the UI calling it is a browser tab on Vercel or a Capacitor WebView on a phone with no Vercel deployment in the picture at all. |
+    65→| `/items/[id]` dynamic route segment | `/items/detail?id=...` — a **static page that reads `id` from `useSearchParams()`** | Static export requires every route to be fully known at build time (`generateStaticParams`). Item IDs are created by users at runtime — they can't be pre-generated. A query param sidesteps this entirely since `/items/detail` itself is one static page. |
+    66→| Next.js Middleware for auth-gating routes | A client-side `<AuthGuard>` wrapper that checks `supabase.auth.getSession()` on mount and redirects if absent | Middleware requires an edge/server runtime that doesn't exist once the app is bundled into Capacitor. |
+    67→| `next/image` optimization | `images: { unoptimized: true }` in `next.config.js`, plain `<img>` | The optimizer is a server feature; it silently can't run in a static/Capacitor context. |
+    68→
+    69→**The payoff:** the exact same `out/` build directory that gets deployed to Vercel today becomes the `webDir` in `capacitor.config.ts` when you're ready to build the APK. One codebase, two shells, zero duplicated logic. Details on that later step are in §16 — don't build it now, just don't box yourself out of it.
+    70→
+    71→---
+    72→
+    73→## 4. System Architecture
+    74→
+    75→```mermaid
+    76→flowchart LR
+    77→    subgraph Client["Static bundle — browser tab today, Capacitor WebView later"]
+    78→        Landing[Landing page]
+    79→        App[Auth-gated app]
+    80→    end
+    81→
+    82→    subgraph Supabase
+    83→        Auth[(Auth)]
+    84→        DB[(Postgres + RLS)]
+    85→        Storage[(Storage: receipts bucket)]
+    86→        EF["Edge Function: extract-receipt"]
+    87→        EF2["Edge Function: send-reminders"]
+    88→        Cron[pg_cron]
+    89→    end
+    90→
+    91→    Gemini[(Gemini API)]
+    92→    Resend[(Resend API)]
+    93→
+    94→    Landing -- "sign up" --> Auth
+    95→    App -- "RLS-scoped queries" --> DB
+    96→    App -- "upload image" --> Storage
+    97→    App -- "supabase.functions.invoke()" --> EF --> Gemini
+    98→    EF -- "structured JSON" --> App
+    99→
+   100→    Cron -- "daily tick" --> EF2
+   101→    EF2 -- "read due reminders" --> DB
+   102→    EF2 -- "send email" --> Resend
+   103→    EF2 -- "mark sent, roll over subscriptions" --> DB
+   104→```
+   105→
+   106→**Why this shape:** every arrow into Supabase is a plain HTTPS call from the client — there is no "Kept server" anywhere in the diagram. That's the direct consequence of §3: nothing here cares whether it's running in a browser tab or a Capacitor shell.
+   107→
+   108→---
+   109→
+   110→## 5. Database Schema
+   111→
+   112→**Why this module exists:** this is the shared source of truth for every screen in the app — the dashboard, the list, the reminders, the AI review form all read and write the same two tables. Getting the shape right once here avoids three different half-compatible data models emerging across features later.
+   113→
+   114→**Why one `items` table instead of three:** a purchase, a subscription, and a bill are the same thing to the user — "something I need to track before it costs me money." Splitting them into `purchases`/`subscriptions`/`bills` tables would mean three near-identical schemas and a `UNION` every time the dashboard or search needs to show all of them together. One table with a `type` discriminator and nullable type-specific columns keeps the common 90% (name, amount, status, reminders) in one place and isolates the 10% that actually differs.
+   115→
+   116→```sql
+   117→-- ============================================================
+   118→-- ENUMS
+   119→-- ============================================================
+   120→create type item_type as enum ('purchase', 'subscription', 'bill');
+   121→create type item_status as enum ('active', 'expiring_soon', 'expired', 'cancelled');
+   122→create type reminder_kind as enum ('warranty_expiry', 'subscription_renewal', 'bill_due');
+   123→
+   124→-- ============================================================
+   125→-- PROFILES — why: timezone-correct reminders need somewhere to
+   126→-- store each user's IANA timezone, and Settings needs an email
+   127→-- opt-in toggle. Auto-created on signup so it's never missing.
+   128→-- ============================================================
+   129→create table public.profiles (
+   130→  id uuid primary key references auth.users(id) on delete cascade,
+   131→  display_name text,
+   132→  timezone text not null default 'UTC',
+   133→  email_reminders_enabled boolean not null default true,
+   134→  created_at timestamptz not null default now()
+   135→);
+   136→
+   137→create function public.handle_new_user()
+   138→returns trigger
+   139→language plpgsql
+   140→security definer set search_path = public
+   141→as $$
+   142→begin
+   143→  insert into public.profiles (id, display_name)
+   144→  values (new.id, new.raw_user_meta_data->>'full_name');
+   145→  return new;
+   146→end;
+   147→$$;
+   148→
+   149→create trigger on_auth_user_created
+   150→  after insert on auth.users
+   151→  for each row execute function public.handle_new_user();
+   152→
+   153→create function public.set_updated_at()
+   154→returns trigger language plpgsql as $$
+   155→begin
+   156→  new.updated_at = now();
+   157→  return new;
+   158→end;
+   159→$$;
+   160→
+   161→-- ============================================================
+   162→-- ITEMS — the core table. See rationale above.
+   163→-- ============================================================
+   164→create table public.items (
+   165→  id uuid primary key default gen_random_uuid(),
+   166→  user_id uuid not null references auth.users(id) on delete cascade,
+   167→  type item_type not null,
+   168→  status item_status not null default 'active',
+   169→
+   170→  name text not null,
+   171→  merchant text,
+   172→  category text not null default 'other',   -- free text + client-side presets, no categories table for MVP
+   173→
+   174→  amount numeric(12,2),
+   175→  currency text not null default 'USD',
+   176→
+   177→  purchase_date date,
+   178→  warranty_months smallint,
+   179→  warranty_expiry date,
+   180→
+   181→  billing_cycle text,               -- 'weekly' | 'monthly' | 'yearly'
+   182→  next_billing_date date,
+   183→
+   184→  notes text,
+   185→  receipt_image_path text,          -- Storage object path, not a public URL — see §6
+   186→  ai_extracted jsonb,
+   187→  is_ai_extracted boolean not null default false,
+   188→
+   189→  created_at timestamptz not null default now(),
+   190→  updated_at timestamptz not null default now(),
+   191→
+   192→  constraint chk_purchase_fields check (
+   193→    type <> 'purchase' or purchase_date is not null
+   194→  ),
+   195→  constraint chk_subscription_fields check (
+   196→    type not in ('subscription','bill') or (billing_cycle is not null and next_billing_date is not null)
+   197→  )
+   198→);
+   199→
+   200→create trigger items_set_updated_at
+   201→  before update on public.items
+   202→  for each row execute function public.set_updated_at();
+   203→
+   204→-- ============================================================
+   205→-- REMINDERS — generated in application code (§10), not a DB
+   206→-- trigger, to keep scheduling logic in one language.
+   207→-- ============================================================
+   208→create table public.reminders (
+   209→  id uuid primary key default gen_random_uuid(),
+   210→  item_id uuid not null references public.items(id) on delete cascade,
+   211→  user_id uuid not null references auth.users(id) on delete cascade,
+   212→  kind reminder_kind not null,
+   213→  remind_on date not null,
+   214→  sent boolean not null default false,
+   215→  sent_at timestamptz,
+   216→  created_at timestamptz not null default now(),
+   217→  unique (item_id, kind, remind_on)
+   218→);
+   219→
+   220→-- ============================================================
+   221→-- INDEXES — rationale in §12
+   222→-- ============================================================
+   223→create index idx_items_user_id        on public.items (user_id);
+   224→create index idx_items_user_status    on public.items (user_id, status);
+   225→create index idx_items_user_type      on public.items (user_id, type);
+   226→create index idx_items_warranty_exp   on public.items (warranty_expiry) where type = 'purchase';
+   227→create index idx_items_next_billing   on public.items (next_billing_date) where type in ('subscription','bill');
+   228→create index idx_reminders_due        on public.reminders (remind_on) where sent = false;
+   229→create index idx_reminders_user       on public.reminders (user_id);
+   230→
+   231→create extension if not exists pg_trgm;
+   232→create index idx_items_name_trgm      on public.items using gin (name gin_trgm_ops);
+   233→create index idx_items_merchant_trgm  on public.items using gin (merchant gin_trgm_ops);
+   234→
+   235→-- ============================================================
+   236→-- ROW LEVEL SECURITY — the only authorization layer in the app.
+   237→-- (select auth.uid()) instead of a bare auth.uid() lets Postgres
+   238→-- cache it once per statement instead of once per row — see §12.
+   239→-- ============================================================
+   240→alter table public.profiles  enable row level security;
+   241→alter table public.items     enable row level security;
+   242→alter table public.reminders enable row level security;
+   243→
+   244→create policy "profiles_select_own" on public.profiles for select using (id = (select auth.uid()));
+   245→create policy "profiles_update_own" on public.profiles for update using (id = (select auth.uid()));
+   246→
+   247→create policy "items_select_own" on public.items for select using (user_id = (select auth.uid()));
+   248→create policy "items_insert_own" on public.items for insert with check (user_id = (select auth.uid()));
+   249→create policy "items_update_own" on public.items for update using (user_id = (select auth.uid()));
+   250→create policy "items_delete_own" on public.items for delete using (user_id = (select auth.uid()));
+   251→
+   252→create policy "reminders_select_own" on public.reminders for select using (user_id = (select auth.uid()));
+   253→create policy "reminders_insert_own" on public.reminders for insert with check (user_id = (select auth.uid()));
+   254→create policy "reminders_update_own" on public.reminders for update using (user_id = (select auth.uid()));
+   255→create policy "reminders_delete_own" on public.reminders for delete using (user_id = (select auth.uid()));
+   256→
+   257→-- The daily cron Edge Function (§10) uses the SERVICE ROLE key
+   258→-- and bypasses RLS by design — the one place allowed to touch
+   259→-- every user's rows.
+   260→```
+   261→
+   262→---
+   263→
+   264→## 6. Storage Architecture
+   265→
+   266→**Why this module exists:** receipt images are the one piece of user data that isn't a database row, and they're the thing most likely to blow through the free storage tier if handled carelessly.
+   267→
+   268→- **Bucket:** `receipts` — private.
+   269→- **Path:** `{user_id}/{item_id}/{timestamp}-{filename}`. Generate the item's UUID client-side (`crypto.randomUUID()`) before upload, so the storage path and eventual DB row share the same ID.
+   270→
+   271→```sql
+   272→insert into storage.buckets (id, name, public) values ('receipts', 'receipts', false);
+   273→
+   274→create policy "receipts_select_own"
+   275→on storage.objects for select
+   276→using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+   277→
+   278→create policy "receipts_insert_own"
+   279→on storage.objects for insert
+   280→with check (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+   281→
+   282→create policy "receipts_delete_own"
+   283→on storage.objects for delete
+   284→using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+   285→```
+   286→
+   287→**Two gotchas to build around from day one, not patch in later:**
+   288→1. **HEIC images.** iPhones default to HEIC, which most browsers won't render inline. Convert to JPEG client-side (`heic2any`) before upload.
+   289→2. **Storage budget.** Free tier is 1 GB. Compress client-side (`browser-image-compression`, ~1600px max width, ~80% JPEG quality) before upload — a raw phone photo can be 4–8 MB; compressed, it's closer to 200–400 KB, roughly a 15–20x runway extension for the same number of receipts.
+   290→
+   291→---
+   292→
+   293→## 7. AI Receipt Extraction Pipeline
+   294→
+   295→**Why this module exists — and why it moved off Next.js:** this is the one piece of the app that touches a secret API key, so it can never run in the browser. In the original spec it lived in a Next.js Route Handler; here it's a **Supabase Edge Function** instead, purely because of §3 — a Route Handler only exists while a Next.js server is running, and once this ships as a Capacitor APK with no such server behind it, that endpoint would simply vanish. An Edge Function is a standalone HTTPS endpoint from day one, so the AI pipeline works identically whether it's called from a browser tab or a phone app.
+   296→
+   297→**Flow:** user photographs/uploads a receipt → image uploaded to Storage → client calls the Edge Function with the storage path → function fetches the image, calls Gemini with a JSON schema → structured fields return → **user reviews and edits before saving — nothing is auto-saved from AI output.**
+   298→
+   299→**The rule this pipeline must never break** (carried over from the original product discovery): *never let the AI infer or estimate a warranty period.* Most receipts don't print one. `warranty_months` stays `null` unless it's explicitly printed on the document — the UI always renders that field as empty-and-editable rather than AI-guessed, so a wrong guess never quietly becomes a saved fact.
+   300→
+   301→```typescript
+   302→// supabase/functions/extract-receipt/index.ts
+   303→// Deno runtime. Invoked via supabase.functions.invoke('extract-receipt', {...})
+   304→// which automatically forwards the caller's JWT — no separate auth wiring needed.
+   305→
+   306→const EXTRACTION_PROMPT = `You are extracting structured data from a photo of a receipt,
+   307→invoice, or subscription confirmation email screenshot.
+   308→Only return fields you can actually read from the image.
+   309→Do NOT guess or estimate a warranty period. Only set warranty_months if a warranty
+   310→duration is explicitly printed on the document. Otherwise return null for it.`;
+   311→
+   312→const responseSchema = {
+   313→  type: "OBJECT",
+   314→  properties: {
+   315→    name:               { type: "STRING" },
+   316→    merchant:           { type: "STRING" },
+   317→    amount:             { type: "NUMBER" },
+   318→    currency:           { type: "STRING" },
+   319→    purchase_date:      { type: "STRING", description: "YYYY-MM-DD" },
+   320→    suggested_category: { type: "STRING" },
+   321→    suggested_type:     { type: "STRING", enum: ["purchase", "subscription", "bill"] },
+   322→    warranty_months:    { type: "INTEGER", nullable: true },
+   323→    confidence_note:    { type: "STRING", description: "Anything illegible or ambiguous" }
+   324→  },
+   325→  required: ["name", "merchant", "amount"]
+   326→};
+   327→
+   328→Deno.serve(async (req) => {
+   329→  // 1. Extract + verify the caller from the forwarded Authorization header
+   330→  // 2. Rate-limit check — see below
+   331→  // 3. Fetch the image bytes from Storage using the path the client sends
+   332→  // 4. Call Gemini:
+   333→  const res = await fetch(
+   334→    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${Deno.env.get("GEMINI_API_KEY")}`,
+   335→    {
+   336→      method: "POST",
+   337→      headers: { "Content-Type": "application/json" },
+   338→      body: JSON.stringify({
+   339→        contents: [{ parts: [{ text: EXTRACTION_PROMPT }, { inline_data: { mime_type: "image/jpeg", data: base64Image } }] }],
+   340→        generationConfig: { responseMimeType: "application/json", responseSchema }
+   341→      })
+   342→    }
+   343→  );
+   344→  // 5. Parse and return the JSON to the client for the review form.
+   345→  // 6. On any failure — return a clear error and let the client fall through
+   346→  //    to the manual-entry form. AI extraction accelerates the form; it's
+   347→  //    never a hard dependency for saving an item.
+   348→});
+   349→```
+   350→
+   351→Secrets for an Edge Function are set via the Supabase CLI (`supabase secrets set GEMINI_API_KEY=...`), not a `.env.local` file — that file only ever holds the *public* Supabase URL/anon key on the Next.js side.
+   352→
+   353→**Rate limiting:** before calling Gemini, count today's rows where `user_id = caller AND is_ai_extracted = true AND created_at::date = current_date`. Cap at ~20/day per user — generous for personal use, no Redis/Upstash required.
+   354→
+   355→---
+   356→
+   357→## 8. Landing Page
+   358→
+   359→**Why this module exists:** everything from §5 onward assumed a signed-in user. Nobody arrives signed in — this is the page that has to explain the product and convert a stranger into a signup in one scroll. It's also the one page in the app that's allowed to be visually bold; see the design doc for why the dashboard deliberately isn't.
+   360→
+   361→**Structure:**
+   362→
+   363→| Section | Purpose | Notes |
+   364→|---|---|---|
+   365→| Hero | State the pitch in one line + the signature animated moment (design doc §6) + primary CTA | "Snap a receipt. Never lose a warranty or a subscription again." + `[Get started free]` |
+   366→| How it works | 3 steps: Snap → Confirm → Get reminded | A real sequence, so numbering it is earning its keep here (unlike decorative step numbers) |
+   367→| Feature grid | AI scan, warranty tracking, subscription tracking, reminders | 4 cards, icon + one line each, no illustration needed |
+   368→| Social proof / trust | Optional for MVP — skip if there are no users yet rather than faking testimonials | ⚠️ DECISION NEEDED if you want a placeholder here or to omit the section entirely pre-launch |
+   369→| Final CTA | Repeat the primary action | "Get started free" again, not a new message |
+   370→| Footer | Login link, minimal legal (privacy/terms placeholders), no clutter | |
+   371→
+   372→**SEO:** because this page is statically generated (§3), it ships as fully-rendered HTML — set a real `<title>`, meta description, and Open Graph tags in `app/page.tsx`'s metadata export. This is free SEO you don't get once a page becomes client-only.
+   373→
+   374→**Flow into the app:** CTA → `/signup` → on success, redirect straight to `/dashboard`. Existing users landing on `/` get a "Log in" link in the header, not a second marketing pitch.
+   375→
+   376→---
+   377→
+   378→## 9. Core Feature Specs
+   379→
+   380→**Why this module exists:** the schema and pipeline above are the substrate; this is what a user actually taps through. Route paths below use the query-param pattern from §3 — flag it if any of these need a URL a user would realistically bookmark or share, since that's the one case where the dynamic-segment approach would normally be nicer and a workaround is worth discussing.
+   381→
+   382→### 9.1 Dashboard (`/dashboard`)
+   383→Summary cards (single RPC call — §12), a "coming up" list of the next 5 reminders, and the last 6 items added.
+   384→
+   385→### 9.2 Add Item (`/items/new`)
+   386→Two entry points — **Scan** (photo → AI extract → review form) and **Manual** (blank form) — that converge on the same form component, since AI just pre-fills it. Category is a combobox: presets (`Electronics`, `Appliances`, `Furniture`, `Subscriptions`, `Bills`, `Other`) plus free text. Type toggle (`purchase`/`subscription`/`bill`) changes which fields render. Saving triggers reminder generation (§10) in the same write.
+   387→
+   388→### 9.3 Item List / Search (`/items`)
+   389→Filters: type, category, status. Search hits the trigram indexes (§12). **Keyset pagination**, not offset — see §12; this is the highest-growth table in the app.
+   390→
+   391→### 9.4 Item Detail (`/items/detail?id=...`)
+   392→Full view/edit, receipt image with lightbox/zoom, delete with confirm, reminder history for that item.
+   393→
+   394→### 9.5 Subscriptions (`/subscriptions`)
+   395→Filtered `type = 'subscription'` view, running monthly-equivalent total (yearly ÷ 12 for the total; shown as-is per row).
+   396→
+   397→### 9.6 Reminders Center (`/reminders`)
+   398→In-app list of upcoming and past reminders — the fallback for anyone who's turned off email reminders in Settings.
+   399→
+   400→### 9.7 Settings (`/settings`)
+   401→Email toggle, timezone (defaulted from `Intl.DateTimeFormat().resolvedOptions().timeZone` at signup, editable after), CSV export of items (MVP-simple; full account export is post-MVP, §19).
+   402→
+   403→---
+   404→
+   405→## 10. Reminders & Notifications System
+   406→
+   407→**Why this module exists:** the entire value proposition ("never lose a warranty or a subscription again") lives in this module. Everything else in the app is bookkeeping; this is the part that actually saves the user money without them doing anything.
+   408→
+   409→**Generation (application code, run right after an item is created or updated):**
+   410→
+   411→```typescript
+   412→// lib/reminders.ts
+   413→const WARRANTY_WINDOWS_DAYS = [30, 7];
+   414→const RENEWAL_WINDOW_DAYS = 3;
+   415→
+   416→async function syncRemindersForItem(supabase: SupabaseClient, item: Item) {
+   417→  // Clear only *unsent* future reminders for this item, then regenerate.
+   418→  // Sent reminders are never touched — they're the audit trail.
+   419→  await supabase.from('reminders').delete().eq('item_id', item.id).eq('sent', false);
+   420→
+   421→  const rows: ReminderInsert[] = [];
+   422→
+   423→  if (item.type === 'purchase' && item.warranty_expiry) {
+   424→    for (const days of WARRANTY_WINDOWS_DAYS) {
+   425→      rows.push({ item_id: item.id, user_id: item.user_id, kind: 'warranty_expiry',
+   426→                  remind_on: subDays(item.warranty_expiry, days) });
+   427→    }
+   428→  }
+   429→  if ((item.type === 'subscription' || item.type === 'bill') && item.next_billing_date) {
+   430→    rows.push({ item_id: item.id, user_id: item.user_id,
+   431→                kind: item.type === 'subscription' ? 'subscription_renewal' : 'bill_due',
+   432→                remind_on: subDays(item.next_billing_date, RENEWAL_WINDOW_DAYS) });
+   433→  }
+   434→
+   435→  const future = rows.filter(r => r.remind_on >= todayISO());
+   436→  if (future.length) await supabase.from('reminders').upsert(future, { onConflict: 'item_id,kind,remind_on' });
+   437→}
+   438→```
+   439→
+   440→**Daily cron (Edge Function, triggered by `pg_cron`):**
+   441→
+   442→```sql
+   443→select cron.schedule(
+   444→  'send-daily-reminders', '0 7 * * *',
+   445→  $$ select net.http_post(
+   446→       url := 'https://<project-ref>.supabase.co/functions/v1/send-reminders',
+   447→       headers := jsonb_build_object('Authorization', 'Bearer ' || '<service-role-key-from-vault>')
+   448→     ); $$
+   449→);
+   450→```
+   451→
+   452→Edge Function logic:
+   453→1. Query due, unsent reminders **against each user's local date**, not server UTC: `remind_on <= (now() at time zone p.timezone)::date`, joined to `profiles`. A naive UTC-only comparison sends reminders a day early or late for anyone outside UTC.
+   454→2. Group by user, send **one email per user** per day listing all due items — not one email per reminder.
+   455→3. Mark sent rows `sent = true, sent_at = now()`.
+   456→4. **Subscription rollover:** for any `subscription`/`bill` where `next_billing_date < today`, advance it by one `billing_cycle` interval and re-run the sync logic so the *next* cycle's reminder gets created. Skip this and a subscription's reminders silently stop after the first renewal.
+   457→
+   458→> ⚠️ **Free-tier gotcha:** Supabase free projects can pause after a period of inactivity. A once-daily cron hit generally keeps a project active, but if reminders silently stop firing, check the project isn't paused before debugging application logic.
+   459→
+   460→---
+   461→
+   462→## 11. Auth & Security
+   463→
+   464→**Why this module exists:** RLS (§5) is the actual security boundary — this module is about not accidentally undermining it.
+   465→
+   466→- **Supabase Auth**, email/password for MVP. Google OAuth is a cheap add later if signup friction becomes a problem.
+   467→- **Client-side route guard, not middleware** (§3): a shared `<AuthGuard>` in the layout for every page under the authenticated section checks `supabase.auth.getSession()` on mount, subscribes to `onAuthStateChange`, and redirects to `/login` if there's no session.
+   468→- **RLS is the only authorization layer** — no parallel permission checks in application code to keep in sync.
+   469→- **Secrets never reach the client:** `GEMINI_API_KEY`, `RESEND_API_KEY`, and the Supabase **service role** key live only in Edge Function secrets, never in `NEXT_PUBLIC_*` variables. Only the `anon` key and URL are public — safe by design because RLS, not key secrecy, is what protects the data.
+   470→- **The extraction endpoint is the one abuse surface** (it costs real money per call) — the §7 rate limit and auth check are both non-optional.
+   471→
+   472→---
+   473→
+   474→## 12. Query Optimization Guidelines
+   475→
+   476→**Why this module exists:** none of this matters at 20 test rows. It all matters at 2,000 real ones, and retrofitting it after the fact means migrating a live user's data — cheaper to build it right the first time.
+   477→
+   478→| Index | Why |
+   479→|---|---|
+   480→| `(user_id)` on items/reminders | Every RLS policy filters on this — the single most-hit predicate in the app |
+   481→| `(user_id, status)`, `(user_id, type)` | Dashboard and list filters combine these; composite index avoids a second lookup |
+   482→| Partial index on `warranty_expiry where type='purchase'` | The cron scan only ever touches purchase rows for this field |
+   483→| `gin_trgm_ops` on `name`/`merchant` | Powers the search bar (§9.3) without a separate search service |
+   484→| Partial index on `reminders.remind_on where sent=false` | The daily cron's core query — sent rows are permanently irrelevant to it |
+   485→
+   486→**RLS performance:** every policy wraps `auth.uid()` as `(select auth.uid())` (already done in §5) so Postgres caches it once per statement instead of re-evaluating per row.
+   487→
+   488→**Keyset pagination, not `OFFSET`:**
+   489→```typescript
+   490→// first page
+   491→supabase.from('items').select('id,name,merchant,amount,status,created_at')
+   492→  .eq('user_id', userId)
+   493→  .order('created_at', { ascending: false }).order('id', { ascending: false })
+   494→  .limit(20);
+   495→
+   496→// next page — cursor = last row of the previous page
+   497→supabase.from('items').select('id,name,merchant,amount,status,created_at')
+   498→  .eq('user_id', userId)
+   499→  .or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`)
+   500→  .order('created_at', { ascending: false }).order('id', { ascending: false })
+   501→  .limit(20);
+   502→```
+   503→
+   504→**One round trip for the dashboard, not four:**
+   505→```sql
+   506→create or replace function public.get_dashboard_summary()
+   507→returns table (
+   508→  active_count bigint, expiring_soon_count bigint, expired_count bigint,
+   509→  subscription_monthly_total numeric, next_reminder_date date
+   510→)
+   511→language sql security invoker as $$
+   512→  select
+   513→    count(*) filter (where status = 'active'),
+   514→    count(*) filter (where status = 'expiring_soon'),
+   515→    count(*) filter (where status = 'expired'),
+   516→    coalesce(sum(amount) filter (where type = 'subscription' and billing_cycle = 'monthly' and status != 'cancelled'), 0),
+   517→    (select min(remind_on) from public.reminders r where r.user_id = auth.uid() and r.sent = false)
+   518→  from public.items where user_id = auth.uid();
+   519→$$;
+   520→```
+   521→`security invoker`, not `security definer` — RLS still applies to the caller; the explicit `where` is defense-in-depth on top of it, not a replacement.
+   522→
+   523→**Avoid N+1 on item detail:** fetch an item and its reminders in one call via `items(*, reminders(*))` rather than a second round trip.
+   524→
+   525→**Before shipping any new query that touches `items` at scale, run `EXPLAIN ANALYZE` on it.**
+   526→
+   527→---
+   528→
+   529→## 13. UI/UX & Branding
+   530→
+   531→**Why this module exists — and why it's short here:** the full color system, typography, logo construction, the "stamp" signature element, and the GSAP animation plan all live in **`kept-design-system.md`**. Read that in full before building any screen. What follows is only the minimum reference needed while coding.
+   532→
+   533→- CSS variables: `--paper`, `--surface`, `--ink`, `--ink-muted`, `--border`, `--accent`, `--status-active`, `--status-expiring`, `--status-expired`, `--status-cancelled` — exact hex values in the design doc.
+   534→- Type: Geist (UI/body), Geist Mono with tabular figures (money and dates only — nowhere else).
+   535→- The dashboard is deliberately calm/restrained; the landing page is deliberately bolder. That split is intentional, not inconsistent — see the design doc for why.
+   536→- No purple anywhere in the palette. This is a hard constraint, not a stylistic default.
+   537→- Dark mode via `next-themes` — build it in the initial UI pass, not bolted on later.
+   538→- Quality floor: responsive to mobile width, visible keyboard focus rings, `prefers-reduced-motion` respected on every transition including the GSAP work.
+   539→
+   540→---
+   541→
+   542→## 14. Folder Structure
+   543→
+   544→```
+   545→kept/
+   546→├── app/
+   547→│   ├── page.tsx                       # "/" — landing page
+   548→│   ├── login/page.tsx
+   549→│   ├── signup/page.tsx
+   550→│   ├── (app)/
+   551→│   │   ├── layout.tsx                 # wraps children in <AuthGuard>
+   552→│   │   ├── dashboard/page.tsx
+   553→│   │   ├── items/
+   554→│   │   │   ├── page.tsx               # list + search + filters
+   555→│   │   │   ├── new/page.tsx
+   556→│   │   │   └── detail/page.tsx        # reads ?id= via useSearchParams — not [id]
+   557→│   │   ├── subscriptions/page.tsx
+   558→│   │   ├── reminders/page.tsx
+   559→│   │   └── settings/page.tsx
+   560→│   └── layout.tsx
+   561→├── components/
+   562→│   ├── ui/                            # shadcn primitives
+   563→│   ├── landing/                       # Hero, HowItWorks, FeatureGrid
+   564→│   ├── items/                         # ItemCard, StatusStamp, ItemForm
+   565→│   ├── dashboard/
+   566→│   └── auth-guard.tsx
+   567→├── lib/
+   568→│   ├── supabase/
+   569→│   │   └── client.ts                  # the only Supabase client — browser-safe, used everywhere
+   570→│   ├── reminders.ts                   # §10 sync logic
+   571→│   └── gsap/                          # animation setup, respects prefers-reduced-motion
+   572→├── supabase/
+   573→│   ├── migrations/
+   574→│   └── functions/
+   575→│       ├── extract-receipt/index.ts   # §7
+   576→│       └── send-reminders/index.ts    # §10
+   577→├── public/
+   578→│   ├── favicon.ico
+   579→│   ├── favicon.svg
+   580→│   ├── apple-touch-icon.png
+   581→│   └── icons/ (192, 512 — manifest icons)
+   582→├── next.config.js                     # output: 'export', images.unoptimized: true
+   583→└── ...
+   584→```
+   585→
+   586→---
+   587→
+   588→## 15. Environment Variables
+   589→
+   590→| Variable | Scope | Notes |
+   591→|---|---|---|
+   592→| `NEXT_PUBLIC_SUPABASE_URL` | Public | Safe — RLS protects the data, not key secrecy |
+   593→| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Same as above |
+   594→| `SUPABASE_SERVICE_ROLE_KEY` | Edge Function secret only | Set via `supabase secrets set` — never in any `.env` shipped to the client |
+   595→| `GEMINI_API_KEY` | Edge Function secret only | `extract-receipt` function only |
+   596→| `RESEND_API_KEY` | Edge Function secret only | `send-reminders` function only |
+   597→
+   598→---
+   599→
+   600→## 16. Capacitor Packaging Path (Later — Not Part of This Build)
+   601→
+   602→**Why this section exists, and why it's deliberately brief:** you don't need to touch this to ship the MVP. It exists so whoever builds the MVP (GLM 5.2, today) makes choices that don't box out this step later — which is exactly what §3 already did. When you're actually ready:
+   603→
+   604→1. `npm install @capacitor/core @capacitor/cli @capacitor/android`
+   605→2. `npx cap init` — `webDir: 'out'` (the static export output)
+   606→3. `next build` (produces `out/`) → `npx cap add android` → `npx cap sync`
+   607→4. Open in Android Studio, set the app icon from `icon-512.png` (already generated — see the design doc), sign, build the APK.
+   608→5. Anything that assumed `window`/browser-only APIs should already be fine, since the whole app is already client-rendered per §3. Double-check any code that assumes a Vercel-hosted absolute URL (e.g., OAuth redirect URLs) — those need to point at the Supabase-hosted Auth flow, not a Vercel domain, once there's no guaranteed web host in the loop.
+   609→
+   610→That's it — this is a packaging step, not an architecture change, because the architecture already accounted for it.
+   611→
+   612→---
+   613→
+   614→## 17. Build Order (Phased)
+   615→
+   616→| Phase | Scope | Done when |
+   617→|---|---|---|
+   618→| **0** | Repo scaffold, Next.js (static export configured from the start) + Tailwind + shadcn, Supabase project created, env vars wired | `npm run dev` shows a blank shadcn-styled page; `next build` with `output: 'export'` succeeds |
+   619→| **1** | Full schema (§5) as migrations, RLS, storage bucket + policies (§6) | Insert/select a test row via the Supabase dashboard respecting RLS |
+   620→| **2** | Auth: signup, login, `<AuthGuard>`, profile auto-creation trigger | New signup produces a `profiles` row automatically; protected routes redirect when logged out |
+   621→| **3** | Landing page (§8) — structure and copy, no animation yet | All sections render, CTA routes to `/signup` |
+   622→| **4** | Core CRUD for items — manual entry only, no AI — list, detail, dashboard skeleton, keyset pagination, query-param detail route | Add/edit/delete an item end-to-end, see it on dashboard and list |
+   623→| **5** | AI extraction pipeline (§7) as a Supabase Edge Function | Photo → prefilled review form → save, graceful fallback to blank form on failure |
+   624→| **6** | Reminders: generation logic (§10), Edge Function, pg_cron schedule, Resend | A manually-inserted reminder with `remind_on = today` gets emailed on the next cron tick |
+   625→| **7** | Full design system pass (`kept-design-system.md`) applied everywhere, including the GSAP landing page animation | Every screen uses the real tokens and the `StatusStamp` component; landing hero animates; `prefers-reduced-motion` respected |
+   626→| **8** | Edge cases: HEIC conversion, image compression, timezone verification, mobile pass, `next build` static-export sanity check | HEIC upload renders correctly; non-UTC test account gets reminders on the right local day; static export builds clean with zero Server Action / dynamic-route errors |
+   627→
+   628→---
+   629→
+   630→## 18. Definition of Done — MVP
+   631→
+   632→- [ ] Landing page live at `/`, converts to `/signup`
+   633→- [ ] Email/password signup + login
+   634→- [ ] Add item via photo (AI-assisted, via Edge Function) and via manual form
+   635→- [ ] Warranty field never auto-filled by AI — always user-confirmed
+   636→- [ ] Dashboard: active/expiring/expired counts + subscription monthly total (single RPC call)
+   637→- [ ] Item list: search, filter, keyset-paginated
+   638→- [ ] Item detail via `?id=` query param, not a dynamic segment
+   639→- [ ] Subscriptions view with running monthly total
+   640→- [ ] Warranty reminders at 30/7 days; subscription/bill reminders at 3 days
+   641→- [ ] Daily email digest (one per user) via Resend
+   642→- [ ] Subscription `next_billing_date` auto-rolls-over after each cycle
+   643→- [ ] Settings: timezone, email toggle
+   644→- [ ] Dark mode
+   645→- [ ] `next build` with `output: 'export'` succeeds with no errors — this is the litmus test that Capacitor packaging will work later
+   646→- [ ] Fully responsive, HEIC-safe, images compressed client-side, no purple anywhere in the UI
+   647→
+   648→---
+   649→
+   650→## 19. Post-MVP Backlog
+   651→
+   652→- The actual Capacitor Android build + Play Store submission (§16)
+   653→- Budgeting / spend analytics across all tracked items
+   654→- Push notifications (in addition to email)
+   655→- User-configurable reminder windows (currently fixed at 30/7/3 days)
+   656→- Multi-currency conversion for the dashboard total
+   657→- Family/shared vault (multiple users on one set of items)
+   658→- Browser extension to auto-capture subscription confirmation emails
+   659→- Full account data export (currently CSV-only)
+   660→- OCR fallback for receipts Gemini can't parse confidently
+   661→- iOS packaging via Capacitor, once Android is validated
+   662→

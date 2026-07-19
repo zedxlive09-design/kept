@@ -1,0 +1,8 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+  <g transform="rotate(-3 100 100)">
+    <circle cx="100" cy="100" r="90" fill="none" stroke="#1B2430" stroke-width="14"/>
+    <text x="100" y="100" text-anchor="middle" dominant-baseline="central"
+          font-family="Georgia, 'Times New Roman', serif" font-weight="700"
+          font-size="92" fill="#1B2430">K</text>
+  </g>
+</svg>

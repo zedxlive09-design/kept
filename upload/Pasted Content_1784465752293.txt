@@ -1,0 +1,679 @@
+# Vaultly — Master Architecture & Build Specification
+
+**Target agent:** GLM 5.2 (Zhipu/Z.ai — 1M context, coding/agent-tuned MoE model)
+**Owner:** Nub Coder (solo dev, no art/marketing budget)
+**Doc status:** Ready to build
+**Last updated:** July 19, 2026
+
+> **Naming:** "Vaultly" is a placeholder from the original brainstorm shortlist (alternatives: Receiptr, SubVault, BillBox, ReceiptNest). Find-and-replace `Vaultly` / `vaultly` throughout if you land on a different name — it appears in the DB comments, package name, and bucket name below.
+
+---
+
+## 0. Read This First — Agent Operating Rules
+
+1. **This document is the single source of truth.** The stack, schema, and naming below are locked decisions carried over from product discovery — don't substitute alternatives (e.g. Firebase instead of Supabase, Redux instead of the state approach implied) without flagging it back first.
+2. **Build in the phase order in §14.** Don't start the AI extraction pipeline before core CRUD + auth work. Each phase has a "done when" checklist — treat it as a gate.
+3. Anything tagged `⚠️ DECISION NEEDED` below is a genuinely open question. Stop and ask rather than guessing silently.
+4. Model IDs (Gemini, etc.) named in this doc are current **as of July 2026** and get deprecated on short notice — Google shut down the entire Gemini 2.0 line on June 1, 2026 with only weeks of notice. Before wiring up the AI pipeline in §6, verify the model string is still live at `ai.google.dev/gemini-api/docs/models`.
+5. **Notes for GLM 5.2 specifically:** it's a coding/agent-first model with a 1M-token context window, so this whole document can be loaded in one shot without chunking — no need to split it into per-phase prompts unless you want to for your own working-memory hygiene. It benchmarks especially well on frontend/design coding, which is relevant to §11 — lean on that strength rather than defaulting to generic shadcn boilerplate.
+
+---
+
+## Table of Contents
+
+1. [Product Overview](#1-product-overview)
+2. [Tech Stack](#2-tech-stack-locked)
+3. [System Architecture](#3-system-architecture)
+4. [Database Schema](#4-database-schema)
+5. [Storage Architecture](#5-storage-architecture)
+6. [AI Receipt Extraction Pipeline](#6-ai-receipt-extraction-pipeline)
+7. [Core Feature Specs](#7-core-feature-specs)
+8. [Reminders & Notifications](#8-reminders--notifications-system)
+9. [Auth & Security](#9-auth--security)
+10. [Query Optimization Guidelines](#10-query-optimization-guidelines)
+11. [UI/UX Guidelines — Clean Professional Design](#11-uiux-guidelines--clean-professional-design-system)
+12. [Folder Structure](#12-folder-structure)
+13. [Environment Variables](#13-environment-variables)
+14. [Build Order (Phased)](#14-build-order-phased)
+15. [Definition of Done — MVP](#15-definition-of-done--mvp)
+16. [Post-MVP Backlog](#16-post-mvp-backlog)
+
+---
+
+## 1. Product Overview
+
+**One-liner:** Vaultly is a personal purchase vault — receipts, warranties, subscriptions, and bills in one place, with AI-assisted data entry and reminders before you lose money to a missed warranty claim or a forgotten renewal.
+
+**Problem:** People lose receipts, forget warranty windows, and lose track of recurring subscriptions (Netflix, Spotify, ChatGPT, hosting, domains, gym) scattered across bank statements. Result: paid repairs that should've been free, and money leaking out on renewals nobody meant to keep.
+
+**Target users:** individuals and families managing personal purchases and subscriptions; secondarily freelancers/solo founders tracking tool subscriptions and hardware warranties.
+
+**Core value loop:** snap a photo → AI fills in the form → user confirms → item is tracked → user gets reminded before it expires or renews.
+
+**What makes this different from a plain warranty tracker:** it's deliberately type-agnostic. A `purchase` (electronics, furniture, appliances), a `subscription` (Netflix, Spotify), and a `bill` (rent, insurance, memberships) all live in the same model, because to the user they're the same mental category: "things I pay for that I need to track."
+
+---
+
+## 2. Tech Stack (Locked)
+
+| Layer | Choice | Notes |
+|---|---|---|
+| Frontend framework | Next.js 15 (App Router) + TypeScript | Server Actions used for all writes; no separate REST backend needed |
+| Styling | Tailwind CSS + shadcn/ui | See §11 for the actual design tokens — don't ship shadcn defaults unstyled |
+| Icons | lucide-react | No custom art budget — icons + color + typography carry all visual weight |
+| Auth / DB / Storage | Supabase (Postgres 15+, Auth, Storage) | Free tier: Postgres, 1 GB storage, Auth, Edge Functions, pg_cron all included |
+| AI (receipt extraction) | Google Gemini API — `gemini-3.5-flash` | Multimodal, cheap, current workhorse tier. Confirm model string is still current before use (see §0.4) |
+| Scheduled jobs | Supabase `pg_cron` → Edge Function | Enabled by default on every Supabase project, free tier included |
+| Transactional email | Resend | Confirm current free-tier send volume at resend.com/pricing before committing — it's comfortably enough for a solo app's reminder volume, but verify the number, don't hardcode an assumption |
+| Hosting | Vercel (Hobby/free tier) | Next.js-native, zero-config deploys |
+| Image compression | `browser-image-compression` (client-side) | Keeps the 1 GB free storage tier viable much longer — see §5 |
+
+**Why no custom backend server:** Supabase's client SDK + RLS policies handle all reads/writes directly from the Next.js client and Server Actions. The only place a "real" server matters is where a secret API key is involved (Gemini, Resend) — those go through Next.js Route Handlers, never the browser.
+
+---
+
+## 3. System Architecture
+
+```mermaid
+flowchart LR
+    subgraph Client["Next.js Client"]
+        UI[React UI]
+    end
+
+    subgraph Server["Next.js Server (Vercel)"]
+        SA[Server Actions]
+        RH["/api/extract-receipt"]
+    end
+
+    subgraph Supabase
+        Auth[(Auth)]
+        DB[(Postgres + RLS)]
+        Storage[(Storage bucket: receipts)]
+        Cron[pg_cron]
+        EF[Edge Function: send-reminders]
+    end
+
+    Gemini[(Gemini API)]
+    Resend[(Resend API)]
+
+    UI -- "signed-in queries, RLS-scoped" --> DB
+    UI -- "upload image" --> Storage
+    UI -- "create/update item" --> SA --> DB
+    UI -- "scan receipt" --> RH --> Gemini
+    RH -- "structured JSON" --> UI
+
+    Cron -- "daily tick" --> EF
+    EF -- "read due reminders" --> DB
+    EF -- "send email" --> Resend
+    EF -- "mark sent, roll over subscriptions" --> DB
+
+    UI --> Auth
+```
+
+Three distinct data paths, each with a reason:
+
+1. **Client ↔ Supabase directly** for all normal reads/writes. RLS is the only authorization layer — there is no app-level permission check to duplicate or drift out of sync.
+2. **Client → Route Handler → Gemini** only for the AI extraction call, because the Gemini API key must never reach the browser.
+3. **pg_cron → Edge Function → Supabase + Resend**, running on the service role, for anything that has to happen without a user present (reminders, subscription date rollover).
+
+---
+
+## 4. Database Schema
+
+Run as a Supabase migration. Comments inline explain non-obvious choices.
+
+```sql
+-- ============================================================
+-- ENUMS
+-- ============================================================
+create type item_type as enum ('purchase', 'subscription', 'bill');
+create type item_status as enum ('active', 'expiring_soon', 'expired', 'cancelled');
+create type reminder_kind as enum ('warranty_expiry', 'subscription_renewal', 'bill_due');
+
+-- ============================================================
+-- PROFILES  (1:1 with auth.users — needed for timezone-correct
+-- reminders and the email opt-in toggle)
+-- ============================================================
+create table public.profiles (
+  id uuid primary key references auth.users(id) on delete cascade,
+  display_name text,
+  timezone text not null default 'UTC',        -- IANA tz, e.g. 'Asia/Karachi'
+  email_reminders_enabled boolean not null default true,
+  created_at timestamptz not null default now()
+);
+
+-- auto-create profile row on signup
+create function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer set search_path = public
+as $$
+begin
+  insert into public.profiles (id, display_name)
+  values (new.id, new.raw_user_meta_data->>'full_name');
+  return new;
+end;
+$$;
+
+create trigger on_auth_user_created
+  after insert on auth.users
+  for each row execute function public.handle_new_user();
+
+-- generic updated_at trigger, reused on items
+create function public.set_updated_at()
+returns trigger language plpgsql as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$;
+
+-- ============================================================
+-- ITEMS  (core table — purchases, subscriptions, and bills
+-- share one table by design: same list/search/dashboard surface,
+-- type-specific fields are simply nullable)
+-- ============================================================
+create table public.items (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references auth.users(id) on delete cascade,
+  type item_type not null,
+  status item_status not null default 'active',
+
+  name text not null,               -- product name / subscription name / bill name
+  merchant text,                    -- store / provider name
+  category text not null default 'other',   -- free text, see §7.2 for preset list — no categories table needed for MVP
+
+  amount numeric(12,2),
+  currency text not null default 'USD',
+
+  -- purchase-specific
+  purchase_date date,
+  warranty_months smallint,
+  warranty_expiry date,
+
+  -- subscription/bill-specific
+  billing_cycle text,               -- 'weekly' | 'monthly' | 'yearly'
+  next_billing_date date,
+
+  notes text,
+  receipt_image_path text,          -- Storage object path, NOT a public URL — see §5
+  ai_extracted jsonb,                -- raw Gemini response, kept for audit/debugging
+  is_ai_extracted boolean not null default false,
+
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+
+  constraint chk_purchase_fields check (
+    type <> 'purchase' or purchase_date is not null
+  ),
+  constraint chk_subscription_fields check (
+    type not in ('subscription','bill') or (billing_cycle is not null and next_billing_date is not null)
+  )
+);
+
+create trigger items_set_updated_at
+  before update on public.items
+  for each row execute function public.set_updated_at();
+
+-- ============================================================
+-- REMINDERS  (generated in application code — see §8 — not by
+-- a DB trigger, to keep the scheduling logic in one language)
+-- ============================================================
+create table public.reminders (
+  id uuid primary key default gen_random_uuid(),
+  item_id uuid not null references public.items(id) on delete cascade,
+  user_id uuid not null references auth.users(id) on delete cascade,
+  kind reminder_kind not null,
+  remind_on date not null,
+  sent boolean not null default false,
+  sent_at timestamptz,
+  created_at timestamptz not null default now(),
+  unique (item_id, kind, remind_on)
+);
+
+-- ============================================================
+-- INDEXES  (rationale in §10)
+-- ============================================================
+create index idx_items_user_id        on public.items (user_id);
+create index idx_items_user_status    on public.items (user_id, status);
+create index idx_items_user_type      on public.items (user_id, type);
+create index idx_items_warranty_exp   on public.items (warranty_expiry) where type = 'purchase';
+create index idx_items_next_billing   on public.items (next_billing_date) where type in ('subscription','bill');
+create index idx_reminders_due        on public.reminders (remind_on) where sent = false;
+create index idx_reminders_user       on public.reminders (user_id);
+
+create extension if not exists pg_trgm;
+create index idx_items_name_trgm      on public.items using gin (name gin_trgm_ops);
+create index idx_items_merchant_trgm  on public.items using gin (merchant gin_trgm_ops);
+
+-- ============================================================
+-- ROW LEVEL SECURITY
+-- ============================================================
+alter table public.profiles  enable row level security;
+alter table public.items     enable row level security;
+alter table public.reminders enable row level security;
+
+-- NOTE: auth.uid() is wrapped in (select ...) on every policy below.
+-- This lets Postgres cache it once per statement instead of
+-- re-evaluating per row — a real, documented Supabase RLS
+-- performance win at any nontrivial row count. See §10.
+
+create policy "profiles_select_own" on public.profiles for select using (id = (select auth.uid()));
+create policy "profiles_update_own" on public.profiles for update using (id = (select auth.uid()));
+
+create policy "items_select_own" on public.items for select using (user_id = (select auth.uid()));
+create policy "items_insert_own" on public.items for insert with check (user_id = (select auth.uid()));
+create policy "items_update_own" on public.items for update using (user_id = (select auth.uid()));
+create policy "items_delete_own" on public.items for delete using (user_id = (select auth.uid()));
+
+create policy "reminders_select_own" on public.reminders for select using (user_id = (select auth.uid()));
+create policy "reminders_insert_own" on public.reminders for insert with check (user_id = (select auth.uid()));
+create policy "reminders_update_own" on public.reminders for update using (user_id = (select auth.uid()));
+create policy "reminders_delete_own" on public.reminders for delete using (user_id = (select auth.uid()));
+
+-- The daily cron Edge Function (§8) uses the SERVICE ROLE key and
+-- bypasses RLS entirely by design — it's the one place that's
+-- allowed to touch every user's rows.
+```
+
+---
+
+## 5. Storage Architecture
+
+- **Bucket:** `receipts` — **private**, not public.
+- **Path convention:** `{user_id}/{item_id}/{timestamp}-{filename}`. Generate the item's UUID **client-side** (`crypto.randomUUID()`) before upload, so the storage path and the eventual DB row share the same ID and nothing is orphaned if the user abandons the flow.
+
+```sql
+insert into storage.buckets (id, name, public) values ('receipts', 'receipts', false);
+
+create policy "receipts_select_own"
+on storage.objects for select
+using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+create policy "receipts_insert_own"
+on storage.objects for insert
+with check (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+
+create policy "receipts_delete_own"
+on storage.objects for delete
+using (bucket_id = 'receipts' and (storage.foldername(name))[1] = (select auth.uid())::text);
+```
+
+**Two gotchas worth building around from day one:**
+
+1. **HEIC images.** iPhones default to HEIC, which most browsers can't render inline. Convert to JPEG client-side before upload (e.g. `heic2any`) — otherwise a large chunk of users will upload receipts that silently fail to preview.
+2. **Storage budget.** Free tier is 1 GB. Compress client-side before upload (resize to ~1600px max width, JPEG quality ~80%) with `browser-image-compression`. A raw phone photo can be 4–8 MB; compressed, it's closer to 200–400 KB — roughly a 15–20x runway extension on the free tier for the same number of receipts.
+
+---
+
+## 6. AI Receipt Extraction Pipeline
+
+**Flow:** user photographs/uploads receipt → image uploaded to Storage → client calls `/api/extract-receipt` with the storage path → server fetches the image, calls Gemini with a JSON schema → structured fields come back → **user reviews and edits before saving, nothing is auto-saved from AI output.**
+
+**The one rule this pipeline must never break** (carried over directly from the original product discovery): *never let the AI infer or estimate a warranty period.* Most receipts don't print one. `warranty_months` stays `null` unless it's explicitly printed on the document — the UI always renders that field as empty-and-editable rather than AI-guessed, so a wrong guess never quietly becomes a saved fact.
+
+```typescript
+// app/api/extract-receipt/route.ts — Route Handler, server-only, never exposed to the client
+
+const EXTRACTION_PROMPT = `You are extracting structured data from a photo of a receipt,
+invoice, or subscription confirmation email screenshot.
+Only return fields you can actually read from the image.
+Do NOT guess or estimate a warranty period. Only set warranty_months if a warranty
+duration is explicitly printed on the document. Otherwise return null for it.`;
+
+const responseSchema = {
+  type: "OBJECT",
+  properties: {
+    name:               { type: "STRING" },
+    merchant:            { type: "STRING" },
+    amount:              { type: "NUMBER" },
+    currency:            { type: "STRING" },
+    purchase_date:       { type: "STRING", description: "YYYY-MM-DD" },
+    suggested_category:  { type: "STRING" },
+    suggested_type:      { type: "STRING", enum: ["purchase", "subscription", "bill"] },
+    warranty_months:     { type: "INTEGER", nullable: true },
+    confidence_note:     { type: "STRING", description: "Anything illegible or ambiguous" }
+  },
+  required: ["name", "merchant", "amount"]
+};
+
+export async function POST(req: NextRequest) {
+  // 1. Verify session via Supabase server client (reject if unauthenticated)
+  // 2. Rate-limit check — see below
+  // 3. Fetch the image bytes from Storage using the storage path the client sends
+  // 4. Call Gemini:
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: EXTRACTION_PROMPT }, { inline_data: { mime_type: "image/jpeg", data: base64Image } }] }],
+        generationConfig: { responseMimeType: "application/json", responseSchema }
+      })
+    }
+  );
+  // 5. Parse and return the JSON to the client for the review form.
+  // 6. On any failure (bad image, rate limit, malformed response) — return a clear
+  //    error and let the user fall through to the manual-entry form. AI extraction
+  //    is an accelerator, never a hard dependency for saving an item.
+}
+```
+
+**Rate limiting (keeps Gemini spend/quota predictable, no extra infra needed):** before calling Gemini, count today's rows where `user_id = current user AND is_ai_extracted = true AND created_at::date = current_date`. Cap at ~20/day per user — generous for personal use, cheap to check, no Redis/Upstash required.
+
+**Error handling:** Gemini call fails, times out, or returns unparseable JSON → return `{ error: "extraction_failed" }` and the client opens the same form with all fields blank. The manual path and the AI-assisted path are the *same form* — AI just pre-fills it.
+
+---
+
+## 7. Core Feature Specs
+
+### 7.1 Dashboard
+- Summary cards (single RPC call — see §10): active items, expiring soon, expired, this month's subscription total.
+- "Coming up" list: next 5 reminders across all types, soonest first.
+- Recent activity: last 6 items added, thumbnail + name + status stamp (see §11).
+
+### 7.2 Add Item
+- Two entry points: **Scan** (photo → AI extract → review form) and **Manual** (blank form).
+- Category field: combobox with presets (`Electronics`, `Appliances`, `Furniture`, `Subscriptions`, `Bills`, `Other`) + free text for anything else — no categories table, just a client-side preset list (see §4 note on why).
+- Type toggle (`purchase` / `subscription` / `bill`) changes which fields render — purchase shows warranty fields, subscription/bill shows billing cycle + next date.
+- Save triggers reminder generation (§8) as part of the same Server Action.
+
+### 7.3 Item List / Search
+- Filters: type, category, status. Search bar hits the trigram indexes on `name`/`merchant` (§10).
+- **Keyset pagination**, not offset — see §10 for the exact pattern. This list is the highest-growth table in the app; get pagination right from the start.
+
+### 7.4 Item Detail
+- Full field view/edit, receipt image with lightbox/zoom, delete (with confirm), reminder history for that item (sent + upcoming).
+
+### 7.5 Subscriptions View
+- Filtered view of `type = 'subscription'`, grouped list with a running monthly-equivalent total (yearly subscriptions divided by 12 for the total, shown as-is per-row).
+
+### 7.6 Reminders Center
+- In-app list of upcoming and past reminders, independent of email — covers users who disable email reminders in Settings.
+
+### 7.7 Settings
+- Email reminders toggle, timezone (defaults from browser `Intl.DateTimeFormat().resolvedOptions().timeZone` at signup, editable after), export data (CSV of `items`, MVP-simple — full account export is post-MVP, §16).
+
+---
+
+## 8. Reminders & Notifications System
+
+**Generation (application code, not a DB trigger — keeps the scheduling logic in one language for a solo dev to reason about):**
+
+```typescript
+// lib/reminders.ts
+const WARRANTY_WINDOWS_DAYS = [30, 7];   // before warranty_expiry
+const RENEWAL_WINDOW_DAYS = 3;            // before next_billing_date
+
+async function syncRemindersForItem(supabase: SupabaseClient, item: Item) {
+  // Clear only *unsent* future reminders for this item, then regenerate.
+  // Sent reminders are never touched — they're the audit trail.
+  await supabase.from('reminders').delete().eq('item_id', item.id).eq('sent', false);
+
+  const rows: ReminderInsert[] = [];
+
+  if (item.type === 'purchase' && item.warranty_expiry) {
+    for (const days of WARRANTY_WINDOWS_DAYS) {
+      rows.push({
+        item_id: item.id, user_id: item.user_id, kind: 'warranty_expiry',
+        remind_on: subDays(item.warranty_expiry, days),
+      });
+    }
+  }
+
+  if ((item.type === 'subscription' || item.type === 'bill') && item.next_billing_date) {
+    rows.push({
+      item_id: item.id, user_id: item.user_id,
+      kind: item.type === 'subscription' ? 'subscription_renewal' : 'bill_due',
+      remind_on: subDays(item.next_billing_date, RENEWAL_WINDOW_DAYS),
+    });
+  }
+
+  const future = rows.filter(r => r.remind_on >= todayISO());
+  if (future.length) {
+    await supabase.from('reminders').upsert(future, { onConflict: 'item_id,kind,remind_on' });
+  }
+}
+```
+
+Called at the end of the same Server Action that creates or updates an item — one write path, no separate sync job needed for the common case.
+
+**Daily cron (Supabase Edge Function, triggered by `pg_cron` — free tier on every Supabase project):**
+
+```sql
+-- runs once daily, e.g. 07:00 UTC
+select cron.schedule(
+  'send-daily-reminders',
+  '0 7 * * *',
+  $$ select net.http_post(
+       url := 'https://<project-ref>.supabase.co/functions/v1/send-reminders',
+       headers := jsonb_build_object('Authorization', 'Bearer ' || '<service-role-key-from-vault>')
+     ); $$
+);
+```
+
+Edge Function logic:
+1. Query due, unsent reminders **compared against each user's local date**, not server UTC — `remind_on <= (now() at time zone p.timezone)::date`, joined to `profiles` for `timezone` and `email_reminders_enabled`. This matters: a naive UTC-only comparison sends reminders a day early or late for anyone outside UTC.
+2. Group by user, send **one email per user** listing all due items that day (not one email per reminder — nobody wants five separate emails).
+3. Mark sent rows `sent = true, sent_at = now()`.
+4. **Subscription rollover:** for any `subscription`/`bill` item where `next_billing_date < today`, advance it by one `billing_cycle` interval and call the reminder-sync logic again so the *next* cycle's reminder gets created. Without this step, a subscription's reminders silently stop firing after the first renewal.
+
+> ⚠️ **Free-tier gotcha:** Supabase free projects can pause after a period of inactivity. A once-daily cron hit generally keeps a project active, but if reminders silently stop firing, check the project isn't paused before debugging application logic.
+
+---
+
+## 9. Auth & Security
+
+- **Supabase Auth**, email/password for MVP. Google OAuth is a cheap add if signup friction becomes a problem — same Auth system, no schema change.
+- **RLS is the only authorization layer.** No parallel permission checks in application code to keep in sync — every table above has RLS enabled with no exceptions.
+- **Secrets never reach the client:** `GEMINI_API_KEY`, `RESEND_API_KEY`, and the Supabase **service role** key are server-only env vars (no `NEXT_PUBLIC_` prefix). Only the Supabase `anon` key and URL are public, and that's safe by design because RLS — not key secrecy — is what protects the data.
+- **The extraction endpoint is the one abuse surface** (it costs real money per call) — the rate limit in §6 and the auth check are both non-optional, not nice-to-haves.
+
+---
+
+## 10. Query Optimization Guidelines
+
+*(This section applies project-wide — revisit it whenever a new query pattern is added, not just at initial build time.)*
+
+**1. Index rationale (from §4):**
+| Index | Why |
+|---|---|
+| `(user_id)` on items/reminders | Every RLS policy filters on this — it's the single most-hit predicate in the app |
+| `(user_id, status)`, `(user_id, type)` | Dashboard and list filters combine these; composite index avoids a second lookup |
+| Partial index on `warranty_expiry where type='purchase'` | Cron scan only ever touches purchase rows for this field — partial index keeps it small |
+| `gin_trgm_ops` on `name`/`merchant` | Powers the search bar (§7.3) without a separate search service |
+| Partial index on `reminders.remind_on where sent=false` | The daily cron's core query — sent rows are permanently irrelevant to it, so exclude them from the index entirely |
+
+**2. RLS performance:** every policy wraps `auth.uid()` as `(select auth.uid())` (already done in §4). Without the `select`, Postgres re-evaluates the function per row instead of once per statement — negligible at 50 rows, real at 5,000.
+
+**3. Keyset pagination, not `OFFSET`.** `OFFSET` gets linearly slower as a user's item count grows, and re-numbers rows on every insert (skipped/duplicated rows across pages). Use a compound cursor on `(created_at, id)`:
+
+```typescript
+// first page
+supabase.from('items').select('id,name,merchant,amount,status,created_at')
+  .eq('user_id', userId)
+  .order('created_at', { ascending: false })
+  .order('id', { ascending: false })
+  .limit(20);
+
+// next page — cursor = last row of the previous page
+supabase.from('items').select('id,name,merchant,amount,status,created_at')
+  .eq('user_id', userId)
+  .or(`created_at.lt.${cursor.createdAt},and(created_at.eq.${cursor.createdAt},id.lt.${cursor.id})`)
+  .order('created_at', { ascending: false })
+  .order('id', { ascending: false })
+  .limit(20);
+```
+
+**4. One round trip for the dashboard, not four.** A Postgres `FILTER` clause aggregates multiple counts in a single query — call it as an RPC instead of firing separate `count()` queries per card:
+
+```sql
+create or replace function public.get_dashboard_summary()
+returns table (
+  active_count bigint, expiring_soon_count bigint, expired_count bigint,
+  subscription_monthly_total numeric, next_reminder_date date
+)
+language sql security invoker as $$
+  select
+    count(*) filter (where status = 'active'),
+    count(*) filter (where status = 'expiring_soon'),
+    count(*) filter (where status = 'expired'),
+    coalesce(sum(amount) filter (where type = 'subscription' and billing_cycle = 'monthly' and status != 'cancelled'), 0),
+    (select min(remind_on) from public.reminders r where r.user_id = auth.uid() and r.sent = false)
+  from public.items where user_id = auth.uid();
+$$;
+```
+Note `security invoker` (default caller's RLS still applies) rather than `security definer` — the explicit `where user_id = auth.uid()` is defense-in-depth on top of RLS, not a replacement for it.
+
+**5. Avoid N+1 on item detail.** Fetch an item and its reminders in one call via Supabase's nested select (`items(*, reminders(*))`) rather than a second round trip.
+
+**6. Before shipping any new query that touches `items` at scale, run `EXPLAIN ANALYZE` on it.** A sequential scan that's invisible at 20 test rows becomes the slowest thing in the app at 2,000.
+
+---
+
+## 11. UI/UX Guidelines — Clean Professional Design System
+
+**Brief:** clean, professional, zero art budget. The design has to come entirely from color, type, and layout discipline — not illustration. Below is a real token system grounded in what this product actually is (proof-of-purchase, warranty seals, ledgers), not generic shadcn defaults skinned in a random accent color.
+
+**Explicitly avoid** the current AI-generated-design tells: warm cream background + high-contrast serif + terracotta accent; near-black background with a neon accent; broadsheet/newspaper hairline-rule layouts. None of these say "personal finance vault" — they say "template."
+
+### Color
+
+| Token | Hex | Use |
+|---|---|---|
+| `paper` (background) | `#F6F5F2` | App background — cool, quiet neutral, not the cliché warm cream |
+| `surface` | `#FFFFFF` | Cards, modals |
+| `ink` (primary text + primary buttons) | `#1B2430` | Deep charcoal-navy — "ledger ink" |
+| `ink-muted` | `#5B6470` | Secondary text |
+| `border` | `#E3E1DB` | Hairlines, dividers |
+| `accent` (signature — used sparingly) | `#2F5D45` | Deep pine-green — links, focus rings, the one confident color in the palette |
+| `status-active` | `#2F5D45` | Same as accent — reinforces "covered/safe" |
+| `status-expiring` | `#B8752B` | Muted amber, not neon |
+| `status-expired` | `#A6402F` | Muted brick red |
+| `status-cancelled` | `#8B8478` | Warm gray |
+
+### Type
+- **UI/body:** Geist (or Inter as fallback) via `next/font` — one grotesque sans for all interface chrome.
+- **Numbers, dates, and money — always monospace with tabular figures** (Geist Mono / IBM Plex Mono): this is a real financial-app convention, not decoration — columns of amounts need to align. Apply this specifically in list rows, the dashboard totals, and item detail, nowhere else.
+- No display serif. This is a utility app, not an editorial site — restraint here is the correct choice, not a missed opportunity.
+
+### The signature element: status stamps
+Rather than a generic colored pill badge, render item status as a **circular "stamp"** — a thick 2px ring, slight rotation (~‑4°), small letter-spaced uppercase label (`ACTIVE`, `EXPIRING`, `EXPIRED`) inside. This is a direct, functional nod to the actual subject matter — warranty seals and proof-of-purchase stamps — not a decorative flourish. It's also the app's core information-communication device (status is the single most important thing a user scans for), so it earns the visual attention.
+
+### Layout patterns
+- **Dashboard:** summary cards top row → "coming up" list → recent items grid.
+- **List views:** table on desktop, card list on mobile — both driven by the same data, not two separate components.
+- **Forms:** single column, generous vertical spacing, inline validation, no multi-step wizard for something as short as "add an item."
+- **Loading state for AI extraction:** this is the one moment users wait on (~2–5s for the Gemini call) — use a skeleton of the form itself filling in field-by-field, not a generic spinner. It communicates "we're reading your receipt," not "something is loading."
+- **Empty states:** icon (lucide) + one direct sentence + the primary action button. No illustration needed — a well-chosen icon and confident copy do the job.
+- **Dark mode:** shadcn + `next-themes` — cheap to add, expected in a 2026 utility app, do it in the initial UI pass rather than bolting it on later.
+
+### Copy voice
+- Active voice, plain verbs: "Save item," not "Submit." A button labeled "Save" produces a toast that says "Saved" — same word, whole flow.
+- Errors state what happened and how to fix it, never apologize, never stay vague ("Couldn't read this image — try a clearer photo" not "Something went wrong").
+- Empty states are an invitation to act, not a mood: "No subscriptions tracked yet." + `[+ Add subscription]`.
+
+### Non-negotiable quality floor
+Responsive down to mobile width, visible keyboard focus rings (Radix/shadcn primitives handle most of this — don't override it away), and respect `prefers-reduced-motion` on any transition.
+
+---
+
+## 12. Folder Structure
+
+```
+vaultly/
+├── app/
+│   ├── (auth)/
+│   │   ├── login/page.tsx
+│   │   └── signup/page.tsx
+│   ├── (dashboard)/
+│   │   ├── dashboard/page.tsx
+│   │   ├── items/
+│   │   │   ├── page.tsx              # list + search + filters
+│   │   │   ├── new/page.tsx          # scan / manual add
+│   │   │   └── [id]/page.tsx         # detail / edit
+│   │   ├── subscriptions/page.tsx
+│   │   ├── reminders/page.tsx
+│   │   └── settings/page.tsx
+│   ├── api/
+│   │   └── extract-receipt/route.ts
+│   └── layout.tsx
+├── components/
+│   ├── ui/                            # shadcn primitives
+│   ├── items/                         # ItemCard, StatusStamp, ItemForm
+│   └── dashboard/
+├── lib/
+│   ├── supabase/
+│   │   ├── client.ts                  # browser client
+│   │   └── server.ts                  # server client (cookies-based)
+│   ├── reminders.ts                   # §8 sync logic
+│   └── gemini.ts                      # extraction schema + call wrapper
+├── supabase/
+│   ├── migrations/
+│   └── functions/
+│       └── send-reminders/index.ts    # §8 daily cron target
+└── ...
+```
+
+---
+
+## 13. Environment Variables
+
+| Variable | Scope | Notes |
+|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Public | Safe — RLS protects the data, not key secrecy |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public | Same as above |
+| `SUPABASE_SERVICE_ROLE_KEY` | **Server-only** | Edge Function + cron only. Never import into any client component |
+| `GEMINI_API_KEY` | **Server-only** | Route Handler only |
+| `RESEND_API_KEY` | **Server-only** | Edge Function only |
+
+---
+
+## 14. Build Order (Phased)
+
+Work through these in order. Each has a "done when" gate — don't move to the next phase until it's met.
+
+| Phase | Scope | Done when |
+|---|---|---|
+| **0** | Repo scaffold, Next.js + Tailwind + shadcn install, Supabase project created, env vars wired | `npm run dev` shows a blank shadcn-styled page, Supabase project reachable |
+| **1** | Full schema from §4 as migrations, RLS policies, storage bucket + policies from §5 | Can insert/select a test row via the Supabase dashboard respecting RLS |
+| **2** | Auth: signup, login, session handling, profile auto-creation trigger | A new signup produces a `profiles` row automatically; protected routes redirect when logged out |
+| **3** | Core CRUD for items — **manual entry only, no AI yet** — list, detail, dashboard skeleton, keyset pagination | Can add/edit/delete an item end-to-end and see it on the dashboard and list |
+| **4** | AI extraction pipeline (§6) wired into the Add Item flow | Photo → prefilled review form → save, with graceful fallback to blank form on failure |
+| **5** | Reminders: generation logic (§8), Edge Function, pg_cron schedule, Resend integration | A manually-inserted reminder with `remind_on = today` gets emailed on the next cron tick |
+| **6** | UI polish pass applying §11's actual design tokens (not shadcn defaults) | Every screen uses the color/type tokens and status-stamp component consistently |
+| **7** | Edge cases: HEIC conversion, image compression, timezone verification, empty states, mobile pass | HEIC upload renders correctly; a non-UTC test account gets reminders on the right local day |
+
+---
+
+## 15. Definition of Done — MVP
+
+- [ ] Email/password signup + login
+- [ ] Add item via photo (AI-assisted) and via manual form
+- [ ] Warranty field never auto-filled by AI — always user-confirmed
+- [ ] Dashboard: active/expiring/expired counts + subscription monthly total (single RPC call)
+- [ ] Item list: search, filter by type/category/status, keyset-paginated
+- [ ] Item detail: view, edit, delete, reminder history
+- [ ] Subscriptions view with running monthly total
+- [ ] Warranty reminders at 30 and 7 days out; subscription/bill reminders 3 days out
+- [ ] Daily email digest (one email per user, not per reminder) via Resend
+- [ ] Subscription `next_billing_date` auto-rolls-over after each cycle
+- [ ] Settings: timezone, email toggle
+- [ ] Dark mode
+- [ ] Fully responsive, HEIC-safe, images compressed client-side before upload
+
+---
+
+## 16. Post-MVP Backlog
+
+*(Noted for context — do not build these until the MVP above is shipped and stable.)*
+
+- Budgeting / spend analytics across all tracked items
+- Push notifications (in addition to email)
+- User-configurable reminder windows (currently fixed at 30/7/3 days)
+- Multi-currency conversion for the dashboard total
+- Family/shared vault (multiple users on one set of items)
+- Browser extension to auto-capture subscription confirmation emails
+- Full account data export (currently CSV-only in Settings)
+- OCR fallback for receipts Gemini can't parse confidently
