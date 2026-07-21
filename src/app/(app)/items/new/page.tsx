@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback } from 'react';
+import { useRef, useState, useCallback, useEffect } from 'react';
 import { Camera, Pencil, ImageIcon } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { ItemForm } from '@/components/items/ItemForm';
@@ -12,6 +12,13 @@ export default function NewItemPage() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   // Using a key to reset the AIReviewForm when the user starts over
   const [aiKey, setAiKey] = useState(0);
+
+  // Cleanup object URL on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrl) URL.revokeObjectURL(imagePreviewUrl);
+    };
+  }, [imagePreviewUrl]);
 
   const handleFileSelect = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];

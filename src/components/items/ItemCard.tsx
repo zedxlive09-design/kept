@@ -2,25 +2,9 @@
 
 import Link from 'next/link';
 import { type Item } from '@/lib/supabase/client';
+import { formatDate, formatAmount } from '@/lib/format';
 import { StatusStamp } from './StatusStamp';
 import { Badge } from '@/components/ui/badge';
-
-function formatDate(dateStr: string) {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
-function formatAmount(amount: number | null, currency: string) {
-  if (amount == null) return null;
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
-}
 
 interface ItemCardProps {
   item: Item;
@@ -37,7 +21,7 @@ export function ItemCard({ item }: ItemCardProps) {
   return (
     <Link
       href={`/items/detail?id=${item.id}`}
-      className="block bg-card border border-border rounded-lg p-4 transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      className="block bg-card border border-border rounded-lg p-4 transition-colors hover:bg-accent/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2"
     >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">

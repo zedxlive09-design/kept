@@ -23,7 +23,7 @@ export function Footer() {
             className="select-none"
           />
           <span className="text-sm text-muted-foreground">
-            &copy; 2025 Kept. All rights reserved.
+            &copy; {new Date().getFullYear()} Kept. All rights reserved.
           </span>
         </div>
 

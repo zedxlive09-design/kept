@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Bell, BellOff, CheckCircle2 } from 'lucide-react';
 import { supabase, type Reminder, type ReminderKind } from '@/lib/supabase/client';
+import { formatDate } from '@/lib/format';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -31,14 +32,6 @@ const KIND_VARIANTS: Record<
   bill_due: 'destructive',
 };
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
-
 function getRelativeTime(dateStr: string): string {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -48,12 +41,11 @@ function getRelativeTime(dateStr: string): string {
 
   if (diffDays === 0) return 'Today';
   if (diffDays === 1) return 'Tomorrow';
+  if (diffDays > 1 && diffDays <= 7) return `in ${diffDays} days`;
+  if (diffDays > 7) return `in ${Math.ceil(diffDays / 7)} weeks`;
   if (diffDays === -1) return 'Yesterday';
-  if (diffDays > 0 && diffDays <= 7) return `in ${diffDays} days`;
-  if (diffDays > 7 && diffDays <= 30) return `in ${Math.ceil(diffDays / 7)} weeks`;
-  if (diffDays < 0 && diffDays >= -7) return `${Math.abs(diffDays)} days ago`;
-  if (diffDays < 0) return `${Math.abs(diffDays)} days ago`;
-  return `in ${diffDays} days`;
+  if (diffDays < -1) return `${Math.abs(diffDays)} days ago`;
+  return formatDate(dateStr);
 }
 
 /**
@@ -104,7 +96,7 @@ function UpcomingRow({ reminder }: { reminder: ReminderWithItem }) {
   return (
     <Link
       href={`/items/detail?id=${reminder.item_id}`}
-      className="flex items-center justify-between py-3 px-1 transition-colors hover:bg-accent/5 -mx-1 px-1 rounded"
+      className="flex items-center justify-between py-3 px-1 transition-colors hover:bg-accent/5 -mx-1 rounded"
     >
       <div className="flex items-center gap-3 flex-1 min-w-0">
         <span className="text-sm font-medium text-primary truncate">
@@ -178,7 +170,8 @@ export default function RemindersPage() {
         .select('*, items!inner(name)')
         .eq('user_id', user.id)
         .eq('sent', false)
-        .order('remind_on', { ascending: true });
+        .order('remind_on', { ascending: true })
+        .limit(50);
 
       const upcomingMapped = (upcomingData ?? []).map((r: Record<string, unknown>) => ({
         id: r.id as string,
@@ -199,7 +192,8 @@ export default function RemindersPage() {
         .select('*, items!inner(name)')
         .eq('user_id', user.id)
         .eq('sent', true)
-        .order('sent_at', { ascending: false });
+        .order('sent_at', { ascending: false })
+        .limit(50);
 
       const pastMapped = (pastData ?? []).map((r: Record<string, unknown>) => ({
         id: r.id as string,
@@ -247,6 +241,7 @@ export default function RemindersPage() {
 
         {/* ── Upcoming tab ──────────────────────────────────── */}
         <TabsContent value="upcoming">
+          <h2 className="sr-only">Upcoming Reminders</h2>
           {loading ? (
             <div className="pt-2">
               <SkeletonRows count={5} />
@@ -263,12 +258,18 @@ export default function RemindersPage() {
               {upcoming.map((r) => (
                 <UpcomingRow key={r.id} reminder={r} />
               ))}
+              {upcoming.length >= 50 && (
+                <p className="text-xs text-muted-foreground text-center py-3">
+                  Showing most recent 50. There may be more reminders.
+                </p>
+              )}
             </div>
           )}
         </TabsContent>
 
         {/* ── Past tab ──────────────────────────────────────── */}
         <TabsContent value="past">
+          <h2 className="sr-only">Past Reminders</h2>
           {loading ? (
             <div className="pt-2">
               <SkeletonRows count={5} />
@@ -285,6 +286,11 @@ export default function RemindersPage() {
               {past.map((r) => (
                 <PastRow key={r.id} reminder={r} />
               ))}
+              {past.length >= 50 && (
+                <p className="text-xs text-muted-foreground text-center py-3">
+                  Showing most recent 50. There may be more reminders.
+                </p>
+              )}
             </div>
           )}
         </TabsContent>

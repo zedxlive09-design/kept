@@ -6,8 +6,8 @@
  * eventual DB row share the same ID (§6).
  */
 
-import imageCompression from 'browser-image-compression';
 import { supabase } from './client';
+import { convertHeicToJpeg, compressImage } from '@/lib/image-utils';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -30,31 +30,6 @@ export interface ExtractReceiptReturn {
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-/** Convert HEIC/HEIF files to JPEG. Passes through non-HEIC files unchanged. */
-async function convertHeicToJpeg(file: File): Promise<File> {
-  if (!file.type.includes('heic') && !file.name.toLowerCase().endsWith('.heic')) {
-    return file;
-  }
-
-  // Dynamic import — heic2any is heavy and only needed for iOS photos
-  const heic2any = (await import('heic2any')).default;
-  const blob = await heic2any({ blob: file, toType: 'image/jpeg', quality: 0.9 });
-  // heic2any may return a single Blob or an array depending on input
-  const jpegBlob = Array.isArray(blob) ? blob[0] : blob;
-  return new File([jpegBlob], file.name.replace(/\.heic$/i, '.jpg'), { type: 'image/jpeg' });
-}
-
-/** Compress image for upload: max 1600px width, 80% quality, JPEG output. */
-async function compressImage(file: File): Promise<File> {
-  return imageCompression(file, {
-    maxWidthOrHeight: 1600,
-    initialQuality: 0.8,
-    fileType: 'image/jpeg' as const,
-    useWebWorker: true,
-    preserveExif: false,
-  });
-}
 
 /** Build the storage path: {userId}/{itemId}/{timestamp}-{filename} */
 function buildStoragePath(userId: string, itemId: string, file: File): string {

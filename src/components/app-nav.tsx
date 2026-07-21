@@ -44,6 +44,7 @@ function NavLink({
     <Link
       href={href}
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={`text-sm font-medium transition-colors hover:text-primary ${
         active ? "text-primary" : "text-muted-foreground"
       }`}
@@ -95,6 +96,7 @@ export function AppNav() {
             <SheetTrigger asChild>
               <Button variant="ghost" size="icon" className="md:hidden" aria-label="Open menu">
                 <Menu className="size-5" />
+                <span className="sr-only">Open menu</span>
               </Button>
             </SheetTrigger>
             <SheetContent side="right" className="w-64">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import Link from 'next/link';
 import { Search, Plus, PackageOpen } from 'lucide-react';
 import { supabase, type Item, type ItemType, type ItemStatus } from '@/lib/supabase/client';
@@ -9,6 +9,14 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
+
+/**
+ * Escapes PostgREST filter special characters so user input cannot
+ * alter the filter logic (injection prevention).
+ */
+function escapePostgrestFilter(value: string): string {
+  return value.replace(/[.,)(*'%\\]/g, '\\$&');
+}
 
 const PAGE_SIZE = 20;
 
@@ -21,8 +29,21 @@ export default function ItemsPage() {
   const [loadingMore, setLoadingMore] = useState(false);
   const [hasMore, setHasMore] = useState(false);
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TypeFilter>('all');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounce search: update debouncedSearch after 300ms of inactivity
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 300);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
 
   const fetchItems = useCallback(async (cursor: { created_at: string; id: string } | null, append: boolean) => {
     try {
@@ -60,8 +81,9 @@ export default function ItemsPage() {
       }
 
       // Search filter (client-side on the fetched results for trigram, but we use ilike for MVP)
-      if (search.trim()) {
-        query = query.or(`name.ilike.%${search.trim()}%,merchant.ilike.%${search.trim()}%`);
+      if (debouncedSearch.trim()) {
+        const safe = escapePostgrestFilter(debouncedSearch.trim());
+        query = query.or(`name.ilike.%${safe}%,merchant.ilike.%${safe}%`);
       }
 
       const { data, error } = await query;
@@ -84,7 +106,7 @@ export default function ItemsPage() {
       setLoading(false);
       setLoadingMore(false);
     }
-  }, [typeFilter, statusFilter, search]);
+  }, [typeFilter, statusFilter, debouncedSearch]);
 
   useEffect(() => {
     fetchItems(null, false);
@@ -125,8 +147,10 @@ export default function ItemsPage() {
 
       {/* Search */}
       <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+        <label htmlFor="items-search" className="sr-only">Search items</label>
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" aria-hidden="true" />
         <Input
+          id="items-search"
           placeholder="Search items..."
           className="pl-9"
           value={search}
@@ -135,11 +159,13 @@ export default function ItemsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div role="radiogroup" aria-label="Filter by type" className="flex flex-wrap gap-2 mb-6">
         {typeOptions.map((opt) => (
           <button
             key={opt.value}
             type="button"
+            role="radio"
+            aria-checked={typeFilter === opt.value}
             className={cn(
               'rounded-md px-3 py-1 text-xs font-medium transition-colors',
               typeFilter === opt.value
@@ -153,11 +179,13 @@ export default function ItemsPage() {
         ))}
       </div>
 
-      <div className="flex flex-wrap gap-2 mb-6">
+      <div role="radiogroup" aria-label="Filter by status" className="flex flex-wrap gap-2 mb-6">
         {statusOptions.map((opt) => (
           <button
             key={opt.value}
             type="button"
+            role="radio"
+            aria-checked={statusFilter === opt.value}
             className={cn(
               'rounded-md px-3 py-1 text-xs font-medium transition-colors',
               statusFilter === opt.value
@@ -184,9 +212,12 @@ export default function ItemsPage() {
       {!loading && items.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-4 py-16 text-center">
           <PackageOpen className="h-12 w-12 text-muted-foreground" />
-          <p className="text-muted-foreground">Nothing kept yet.</p>
+          <h2 className="text-lg font-medium">No items yet</h2>
+          <p className="text-sm text-muted-foreground max-w-xs">
+            Add your first purchase, subscription, or bill to start tracking.
+          </p>
           <Button asChild>
-            <Link href="/items/new">Add your first item</Link>
+            <Link href="/items/new">Add item</Link>
           </Button>
         </div>
       )}

@@ -7,5 +7,13 @@
  * immediately, no animation, not a slower version. (design doc §6, §9)
  */
 
+import { gsap } from 'gsap';
+import { ScrollTrigger } from 'gsap/ScrollTrigger';
+
+// Register ScrollTrigger once centrally — both hero-stamp and
+// scroll-reveal depend on it. Registering twice is harmless but
+// unnecessary; centralising avoids future confusion.
+gsap.registerPlugin(ScrollTrigger);
+
 export { initHeroStampAnimation } from './hero-stamp';
 export { initScrollRevealAnimations } from './scroll-reveal';

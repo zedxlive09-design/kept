@@ -50,7 +50,7 @@ export function Hero() {
         <div className="mb-8">
           <Image
             src="/kept-logo-mark-two-tone.svg"
-            alt="Kept"
+            alt="Kept logo — personal purchase vault"
             width={160}
             height={160}
             priority

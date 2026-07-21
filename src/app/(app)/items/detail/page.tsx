@@ -30,23 +30,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 
-function formatAmount(amount: number | null, currency: string) {
-  if (amount == null) return '—';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
-}
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return '—';
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
+import { formatDate, formatAmount } from '@/lib/format';
 
 export default function ItemDetailPage() {
   const searchParams = useSearchParams();
@@ -59,6 +43,7 @@ export default function ItemDetailPage() {
   const [editing, setEditing] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [imageOpen, setImageOpen] = useState(false);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
 
   const fetchItem = useCallback(async () => {
     if (!id) return;
@@ -75,6 +60,16 @@ export default function ItemDetailPage() {
       const row = data as unknown as Item & { reminders: Reminder[] };
       setItem(row);
       setReminders(row.reminders ?? []);
+
+      // Fetch signed URL for private bucket receipt image
+      if (row.receipt_image_path) {
+        const { data: signedData } = await supabase.storage
+          .from('receipts')
+          .createSignedUrl(row.receipt_image_path, 3600);
+        if (signedData) setReceiptUrl(signedData.signedUrl);
+      } else {
+        setReceiptUrl(null);
+      }
     } catch {
       toast.error('Could not load item');
       router.push('/items');
@@ -243,7 +238,7 @@ export default function ItemDetailPage() {
       </div>
 
       {/* Receipt image */}
-      {item.receipt_image_path && (
+      {item.receipt_image_path && receiptUrl && (
         <div className="mb-4">
           <button
             type="button"
@@ -251,7 +246,7 @@ export default function ItemDetailPage() {
             className="block w-full rounded-lg overflow-hidden border border-border hover:opacity-80 transition-opacity"
           >
             <img
-              src={item.receipt_image_path}
+              src={receiptUrl}
               alt="Receipt"
               className="w-full h-auto max-h-64 object-contain bg-muted"
             />
@@ -260,7 +255,7 @@ export default function ItemDetailPage() {
             <DialogContent className="max-w-3xl p-2">
               <DialogTitle className="sr-only">Receipt image</DialogTitle>
               <img
-                src={item.receipt_image_path}
+                src={receiptUrl}
                 alt="Receipt"
                 className="w-full h-auto rounded-md"
               />

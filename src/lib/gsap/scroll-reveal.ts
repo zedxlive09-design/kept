@@ -1,9 +1,5 @@
-'use client';
-
 import { gsap } from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
-
-gsap.registerPlugin(ScrollTrigger);
 
 /**
  * Subtle ScrollTrigger reveals for sections below the hero.

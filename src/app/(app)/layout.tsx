@@ -10,9 +10,9 @@ import { AppNav } from "@/components/app-nav";
 
 export default function AppLayout({
   children,
-}: {
+}: Readonly<{
   children: React.ReactNode;
-}) {
+}>) {
   return (
     <AuthGuard>
       <div className="min-h-screen flex flex-col">

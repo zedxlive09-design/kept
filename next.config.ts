@@ -14,7 +14,13 @@ const nextConfig: NextConfig = {
     ignoreBuildErrors: false,
   },
 
+  // Disabled for Capacitor compatibility — strict mode double-mounts
+  // cause issues with native bridge initialization (§16).
   reactStrictMode: false,
+
+  experimental: {
+    optimizePackageImports: ['lucide-react'],
+  },
 };
 
 export default nextConfig;

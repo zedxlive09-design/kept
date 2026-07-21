@@ -97,6 +97,10 @@ Deno.serve(async () => {
 
   const todayUTC = new Date().toISOString().split("T")[0];
 
+  const sevenDaysFromNow = new Date();
+  sevenDaysFromNow.setDate(sevenDaysFromNow.getDate() + 7);
+  const sevenDaysFromNowStr = sevenDaysFromNow.toISOString().split("T")[0];
+
   // ── Step 1: Query due, unsent reminders joined with profiles ──
   const { data: reminders, error: qErr } = await supabase
     .from("reminders")
@@ -118,7 +122,8 @@ Deno.serve(async () => {
       )
     `
     )
-    .eq("sent", false);
+    .eq("sent", false)
+    .lte("remind_on", sevenDaysFromNowStr);
 
   if (qErr) {
     console.error("Failed to query reminders:", qErr);
@@ -333,6 +338,11 @@ Deno.serve(async () => {
       }
     }
   }
+
+  // ── Step 6: Auto-update item statuses ───────────────────────
+  // Transition active → expiring_soon → expired based on date thresholds.
+  // Uses a single RPC that runs three targeted UPDATE statements.
+  await supabase.rpc('update_item_statuses');
 
   // ── Response ─────────────────────────────────────────────────
   return new Response(

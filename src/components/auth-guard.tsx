@@ -20,6 +20,8 @@ function GuardInner({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     if (!loading && !user) {
+      // Full page reload required for Capacitor native bridge — router.push()
+      // doesn't work reliably in WKWebView (§16).
       window.location.href = "/login";
     }
   }, [loading, user]);

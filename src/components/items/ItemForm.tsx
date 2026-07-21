@@ -37,13 +37,13 @@ import {
 import { cn } from '@/lib/utils';
 
 const CATEGORIES = [
-  'Electronics',
-  'Appliances',
-  'Furniture',
-  'Subscriptions',
-  'Bills',
-  'Other',
-];
+  { label: 'Electronics', value: 'electronics' },
+  { label: 'Clothing', value: 'clothing' },
+  { label: 'Home & Garden', value: 'home & garden' },
+  { label: 'Health & Beauty', value: 'health & beauty' },
+  { label: 'Food & Dining', value: 'food & dining' },
+  { label: 'Other', value: 'other' },
+] as const;
 
 const CURRENCIES = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'JPY'];
 
@@ -85,7 +85,7 @@ export function ItemForm({ defaultValues, mode = 'create', receiptImagePath, aiE
   const router = useRouter();
   const [saving, setSaving] = useState(false);
   const [categoryOpen, setCategoryOpen] = useState(false);
-  const [categoryValue, setCategoryValue] = useState(defaultValues?.category ?? 'Other');
+  const [categoryValue, setCategoryValue] = useState(defaultValues?.category ?? 'other');
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
@@ -95,7 +95,7 @@ export function ItemForm({ defaultValues, mode = 'create', receiptImagePath, aiE
       merchant: '',
       amount: null,
       currency: 'USD',
-      category: 'Other',
+      category: 'other',
       notes: '',
       purchase_date: null,
       warranty_months: null,
@@ -139,6 +139,16 @@ export function ItemForm({ defaultValues, mode = 'create', receiptImagePath, aiE
       if (mode === 'edit' && itemId) {
         const { error } = await supabase.from('items').update(row).eq('id', itemId);
         if (error) throw error;
+
+        // Re-sync reminders after edit to reflect any date/cycle changes
+        const { data: updated } = await supabase
+          .from('items')
+          .select('*')
+          .eq('id', itemId)
+          .single();
+        if (updated) {
+          await syncRemindersForItem(supabase, updated as unknown as Item);
+        }
       } else {
         const { data, error } = await supabase.from('items').insert(row).select('*, reminders(*)').single();
         if (error) throw error;
@@ -258,7 +268,7 @@ export function ItemForm({ defaultValues, mode = 'create', receiptImagePath, aiE
                 aria-expanded={categoryOpen}
                 className="w-full justify-between"
               >
-                {categoryValue || 'Select category...'}
+                {CATEGORIES.find((c) => c.value === categoryValue)?.label ?? categoryValue || 'Select category...'}
                 <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
               </Button>
             </PopoverTrigger>
@@ -270,21 +280,21 @@ export function ItemForm({ defaultValues, mode = 'create', receiptImagePath, aiE
                   <CommandGroup>
                     {CATEGORIES.map((cat) => (
                       <CommandItem
-                        key={cat}
-                        value={cat}
+                        key={cat.value}
+                        value={cat.value}
                         onSelect={() => {
-                          setCategoryValue(cat);
-                          form.setValue('category', cat);
+                          setCategoryValue(cat.value);
+                          form.setValue('category', cat.value);
                           setCategoryOpen(false);
                         }}
                       >
                         <Check
                           className={cn(
                             'mr-2 h-4 w-4',
-                            categoryValue === cat ? 'opacity-100' : 'opacity-0'
+                            categoryValue === cat.value ? 'opacity-100' : 'opacity-0'
                           )}
                         />
-                        {cat}
+                        {cat.label}
                       </CommandItem>
                     ))}
                   </CommandGroup>

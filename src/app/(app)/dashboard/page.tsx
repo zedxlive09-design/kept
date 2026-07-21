@@ -26,10 +26,10 @@ export default function DashboardPage() {
         setSummary(rpcData as unknown as DashboardSummary);
       }
 
-      // Upcoming reminders — next 5 unsent
+      // Upcoming reminders — next 5 unsent, joined with items for name/type
       const { data: reminderData } = await supabase
         .from('reminders')
-        .select('*')
+        .select('*, items!inner(name, type)')
         .eq('user_id', user.id)
         .eq('sent', false)
         .order('remind_on', { ascending: true })
@@ -172,19 +172,30 @@ export default function DashboardPage() {
             </div>
           ) : (
             <div className="space-y-2">
-              {upcoming.map((r) => (
-                <div
-                  key={r.id}
-                  className="bg-card border border-border rounded-lg p-3 flex items-center justify-between"
-                >
-                  <span className="text-sm capitalize">
-                    {r.kind.replace(/_/g, ' ')}
-                  </span>
-                  <span className="text-sm font-mono tabular-nums text-muted-foreground">
-                    {r.remind_on}
-                  </span>
-                </div>
-              ))}
+              {upcoming.map((r) => {
+                const itemData = (r as unknown as Record<string, unknown>).items as
+                  | { name: string; type: string }
+                  | undefined;
+                return (
+                  <Link
+                    key={r.id}
+                    href={`/items/detail?id=${r.item_id}`}
+                    className="bg-card border border-border rounded-lg p-3 flex items-center justify-between hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="text-sm truncate">
+                        {itemData?.name ?? r.kind.replace(/_/g, ' ')}
+                      </span>
+                      <span className="text-xs text-muted-foreground capitalize shrink-0">
+                        {r.kind.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <span className="text-sm font-mono tabular-nums text-muted-foreground shrink-0 ml-2">
+                      {r.remind_on}
+                    </span>
+                  </Link>
+                );
+              })}
             </div>
           )}
         </div>

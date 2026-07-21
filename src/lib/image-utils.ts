@@ -11,19 +11,21 @@
  * then compression — since compression needs a standard format to work with.
  */
 
-import heic2any from "heic2any";
 import imageCompression from "browser-image-compression";
 
 /**
  * Convert HEIC to JPEG if needed.
  * iPhones default to HEIC which most browsers won't render inline.
+ * Uses dynamic import to avoid bundling ~3MB into the signup page.
  */
 export async function convertHeicToJpeg(file: File): Promise<File> {
-  if (!file.type.includes("heic")) return file;
+  if (!file.type.includes("heic") && !file.name.toLowerCase().endsWith('.heic')) return file;
 
+  const heic2any = (await import("heic2any")).default;
   const blob = await heic2any({ blob: file, toType: "image/jpeg", quality: 0.9 });
+  const jpegBlob = Array.isArray(blob) ? blob[0] : blob;
   return new File(
-    [blob instanceof Blob ? blob : (blob as Blob[])[0]],
+    [jpegBlob],
     file.name.replace(/\.heic$/i, ".jpg"),
     { type: "image/jpeg" },
   );

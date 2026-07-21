@@ -8,23 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { StatusStamp } from '@/components/items/StatusStamp';
 
-function formatAmount(amount: number | null, currency: string) {
-  if (amount == null) return '—';
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency,
-    minimumFractionDigits: 2,
-  }).format(amount);
-}
-
-function formatDate(dateStr: string | null) {
-  if (!dateStr) return '—';
-  return new Date(dateStr + 'T00:00:00').toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
+import { formatDate, formatAmount } from '@/lib/format';
 
 export default function SubscriptionsPage() {
   const [items, setItems] = useState<Item[]>([]);
@@ -41,7 +25,8 @@ export default function SubscriptionsPage() {
         .select('*')
         .eq('user_id', user.id)
         .eq('type', 'subscription')
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(100);
 
       if (error) throw error;
       setItems((data ?? []) as unknown as Item[]);
@@ -68,14 +53,6 @@ export default function SubscriptionsPage() {
     }
   }, 0);
 
-  const formatMonthly = (amount: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-    }).format(amount);
-  };
-
   if (loading) {
     return (
       <div className="mx-auto max-w-2xl px-4 py-8 space-y-4">
@@ -98,7 +75,7 @@ export default function SubscriptionsPage() {
           <span className="text-sm">Monthly total</span>
         </div>
         <p className="text-2xl font-semibold font-mono tabular-nums">
-          {formatMonthly(monthlyTotal)}
+          {formatAmount(monthlyTotal)}
         </p>
       </div>
 

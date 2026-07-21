@@ -22,23 +22,6 @@ const SKELETON_FIELDS = [
   { label: 'Notes', input: 'h-20 w-full' },
 ];
 
-function ExtractionSkeleton() {
-  return (
-    <div className="space-y-6 max-w-lg" aria-label="Reading your receipt">
-      <p className="text-sm text-muted-foreground flex items-center gap-2">
-        <FileText className="h-4 w-4" />
-        Reading your receipt…
-      </p>
-      {SKELETON_FIELDS.map((field, i) => (
-        <div key={field.label} className="space-y-2" style={{ animationDelay: `${i * 200}ms` }}>
-          <Skeleton className="h-4 w-16" />
-          <Skeleton className={`h-9 w-full rounded-md ${i > 0 ? 'animate-pulse' : ''}`} />
-        </div>
-      ))}
-    </div>
-  );
-}
-
 // ─── Staggered skeleton wrapper ───────────────────────────────────────────────
 // Reveals skeleton rows one by one for a "filling in" effect
 

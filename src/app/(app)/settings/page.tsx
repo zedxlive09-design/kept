@@ -88,9 +88,15 @@ export default function SettingsPage() {
   const handleExport = async () => {
     try {
       setExporting(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
       const { data, error } = await supabase
         .from('items')
-        .select('*');
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(10000);
 
       if (error) throw error;
 

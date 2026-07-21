@@ -126,6 +126,8 @@ create index idx_reminders_user       on public.reminders (user_id);
 create extension if not exists pg_trgm;
 create index idx_items_name_trgm      on public.items using gin (name gin_trgm_ops);
 create index idx_items_merchant_trgm  on public.items using gin (merchant gin_trgm_ops);
+create index if not exists idx_items_user_created
+  on public.items (user_id, created_at DESC);
 
 -- ============================================================
 -- ROW LEVEL SECURITY — the only authorization layer (§5, §11)
@@ -161,7 +163,51 @@ language sql security invoker as $$
     count(*) filter (where status = 'active'),
     count(*) filter (where status = 'expiring_soon'),
     count(*) filter (where status = 'expired'),
-    coalesce(sum(amount) filter (where type = 'subscription' and billing_cycle = 'monthly' and status != 'cancelled'), 0),
+    coalesce(
+      sum(case
+        when type = 'subscription' and status != 'cancelled' then
+          case billing_cycle
+            when 'monthly' then amount
+            when 'yearly' then amount / 12::numeric
+            when 'weekly' then amount * 4.33
+            else amount
+          end
+        else 0
+      end), 0
+    ) as subscription_monthly_total,
     (select min(remind_on) from public.reminders r where r.user_id = auth.uid() and r.sent = false)
   from public.items where user_id = auth.uid();
+$$;
+
+-- ============================================================
+-- STATUS AUTO-UPDATE RPC — used by send-reminders edge function
+-- to transition item status based on date thresholds.
+-- ============================================================
+create or replace function public.update_item_statuses()
+returns void
+language sql security definer as $$
+  -- Expire past-due purchases
+  update public.items
+  set status = 'expired'
+  where type = 'purchase'
+    and warranty_expiry is not null
+    and warranty_expiry < current_date
+    and status in ('active', 'expiring_soon');
+
+  -- Mark purchases expiring within 30 days
+  update public.items
+  set status = 'expiring_soon'
+  where type = 'purchase'
+    and warranty_expiry is not null
+    and warranty_expiry >= current_date
+    and warranty_expiry <= current_date + interval '30 days'
+    and status = 'active';
+
+  -- Mark overdue subscriptions/bills
+  update public.items
+  set status = 'expiring_soon'
+  where type in ('subscription', 'bill')
+    and next_billing_date is not null
+    and next_billing_date < current_date
+    and status = 'active';
 $$;
