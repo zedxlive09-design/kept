@@ -51,13 +51,15 @@ export function FeatureGrid() {
             <article
               key={feature.title}
               data-reveal="true"
-              className="bg-card border border-border rounded-lg p-6 flex flex-col gap-3"
+              className="min-h-[140px] bg-card border border-transparent hover:border-border rounded-lg p-6 flex flex-col gap-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
             >
-              <feature.icon
-                className="w-5 h-5 text-[var(--accent-color)]"
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
+              <div className="flex items-center justify-center w-9 h-9 rounded-full bg-gradient-to-br from-[var(--accent-color)] to-[var(--accent-color)]/70">
+                <feature.icon
+                  className="w-4.5 h-4.5 text-white"
+                  strokeWidth={1.5}
+                  aria-hidden="true"
+                />
+              </div>
               <h3 className="text-base font-semibold text-foreground">
                 {feature.title}
               </h3>

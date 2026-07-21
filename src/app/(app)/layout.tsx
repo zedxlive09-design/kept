@@ -7,6 +7,7 @@
  */
 import { AuthGuard } from "@/components/auth-guard";
 import { AppNav } from "@/components/app-nav";
+import { PageTransition } from "@/components/page-transition";
 
 export default function AppLayout({
   children,
@@ -18,7 +19,9 @@ export default function AppLayout({
       <div className="min-h-screen flex flex-col">
         <AppNav />
         <main className="flex-1 mx-auto w-full max-w-5xl px-4 py-6">
-          {children}
+          <PageTransition>
+            {children}
+          </PageTransition>
         </main>
       </div>
     </AuthGuard>

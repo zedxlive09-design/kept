@@ -11,6 +11,9 @@ import { ScrollTrigger } from 'gsap/ScrollTrigger';
  *
  * Targets elements via data attributes: data-reveal="true"
  *
+ * Sibling elements within the same parent group receive a stagger
+ * delay (100ms) so they cascade in naturally.
+ *
  * Wrapped in prefers-reduced-motion check. Reduced-motion users
  * get the end state immediately. (design doc §6, §9)
  *
@@ -20,18 +23,27 @@ export function initScrollRevealAnimations() {
   const mm = gsap.matchMedia();
 
   mm.add('(prefers-reduced-motion: no-preference)', () => {
-    const elements = document.querySelectorAll('[data-reveal="true"]');
-    elements.forEach((el) => {
+    // Collect parent groups of [data-reveal] elements for stagger
+    const parents = new Set<Element>();
+    document.querySelectorAll('[data-reveal="true"]').forEach((el) => {
+      if (el.parentElement) parents.add(el.parentElement);
+    });
+
+    parents.forEach((parent) => {
+      const children = parent.querySelectorAll<HTMLElement>(':scope > [data-reveal="true"]');
+      if (children.length === 0) return;
+
       gsap.fromTo(
-        el,
-        { y: 16, opacity: 0 },
+        children,
+        { y: 14, opacity: 0 },
         {
           y: 0,
           opacity: 1,
-          duration: 0.5,
+          duration: 0.45,
           ease: 'power2.out',
+          stagger: 0.1,
           scrollTrigger: {
-            trigger: el,
+            trigger: parent,
             start: 'top 85%',
             once: true,
           },

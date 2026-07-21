@@ -8,6 +8,7 @@ import { ItemCard } from '@/components/items/ItemCard';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
+import { BackToTop } from '@/components/back-to-top';
 import { cn } from '@/lib/utils';
 
 /**
@@ -242,6 +243,7 @@ export default function ItemsPage() {
           )}
         </div>
       )}
+      <BackToTop />
     </div>
   );
 }

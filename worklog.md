@@ -490,3 +490,78 @@ Stage Summary:
   - src/app/(app)/dashboard/page.tsx
   - supabase/functions/send-reminders/index.ts
   - supabase/migrations/00001_initial_schema.sql
+
+---
+Task ID: 10
+Agent: Graphics Designer
+Task: Design System Polish — visual refinements across 8 target areas
+
+Work Log:
+- ✅ TASK 1 (Hero): Added dot pattern overlay (SVG data URI, 4% opacity), multi-layer radial glow (inner bright + mid + outer soft bloom), bottom gradient fade from hero-bg to paper, CTA hover with scale-[1.03] and brightness-110
+- ✅ TASK 2 (HowItWorks): Added section label ("HOW IT WORKS" uppercase tracking-widest), connecting horizontal line between step numbers (desktop only), step number circles now bordered instead of solid fill, group hover effects on step cards
+- ✅ TASK 3 (FeatureGrid): Cards have hover -translate-y-0.5 + shadow-sm, border transitions from transparent to border on hover, icon circles use gradient background (from accent to accent/70), min-h-[140px] for consistent height
+- ✅ TASK 4 (FinalCTA): Contained in max-w-lg rounded container with faint accent-tinted gradient bg, CTA button slightly taller (h-[52px]) with subtle accent glow (box-shadow), hover scale+brightness
+- ✅ TASK 5 (AppNav): Added animated underline indicator for active desktop link (scale-x transition, origin-left), mobile nav links have bg highlight + dot indicator, subtle shadow-[0_1px_3px] on header, backdrop-blur-sm already present
+- ✅ TASK 6 (Dashboard): Summary cards have 4px left accent bar (status color), hover -translate-y-0.5 + shadow-sm, "Coming up" section uses divide-y for subtle dividers, data load fade-in handled by PageTransition wrapper
+- ✅ TASK 7 (ItemCard): Left border accent (4px) color-matched to status via STATUS_CSS_VAR, hover -translate-y-0.5 + shadow-sm, amount text now font-semibold, category badge uses bg-muted for subtle tint
+- ✅ TASK 8 (PageTransition): Created src/components/page-transition.tsx using CSS keyframe animation (fadeInUp 0.3s ease-out) to avoid react-hooks/set-state-in-effect lint error, added @keyframes fadeInUp to globals.css with prefers-reduced-motion override, wrapped {children} in PageTransition in app layout
+- ✅ Lint passes clean (0 errors, 1 pre-existing warning in unrelated file)
+- Files created:
+  - src/components/page-transition.tsx
+- Files modified:
+  - src/components/landing/Hero.tsx
+  - src/components/landing/HowItWorks.tsx
+  - src/components/landing/FeatureGrid.tsx
+  - src/components/landing/FinalCTA.tsx
+  - src/components/app-nav.tsx
+  - src/app/(app)/dashboard/page.tsx
+  - src/components/items/ItemCard.tsx
+  - src/app/(app)/layout.tsx
+  - src/app/globals.css
+---
+Task ID: frontend-optimize
+Agent: Frontend Engineer
+Task: Performance optimization, pattern fixes, and frontend architecture improvements (5 tasks)
+
+Work Log:
+- TASK 1 — Fix Tailwind v3/v4 config mismatch:
+  - Confirmed Tailwind v4 via @tailwindcss/postcss in postcss.config.mjs, tailwindcss@^4 in devDeps, and @import "tailwindcss" in globals.css.
+  - Deleted tailwind.config.ts (v3 format with content, darkMode:"class", plugins) — entirely unused by v4.
+  - Verified animations still work: tw-animate-css is imported in globals.css and provides all shadcn animation classes (animate-in, slide-in-from, etc.).
+  - Removed tailwindcss-animate from dependencies — v3 plugin, no longer needed with tw-animate-css.
+
+- TASK 2 — Add lightweight query hook:
+  - Created src/hooks/use-supabase-query.ts with useSupabaseQuery<T> hook.
+  - Uses useReducer to avoid React 19's "no synchronous setState in effects" lint rule.
+  - Provides cancellation safety, stable refetch callback, and queryFn ref pattern (ref updated in dedicated effect, not during render).
+  - Refactored src/app/(app)/dashboard/page.tsx to use 3 separate useSupabaseQuery calls (summary, upcoming reminders, recent items), removing the manual useState+useEffect+useCallback pattern.
+  - Left other pages unchanged for this iteration — demonstrates the pattern for future adoption.
+
+- TASK 3 — Improve loading skeletons:
+  - Settings page: Replaced 4 generic skeleton bars with a layout-faithful skeleton matching every form section (heading, display name field, timezone field, toggle row with switch, save button, divider, export section).
+  - Subscriptions page: Replaced 4 flat skeleton rectangles with structured skeletons matching the monthly total card and individual subscription row layout (icon, title, merchant, status badge, amounts, dates).
+
+- TASK 4 — Improve landing page section transitions:
+  - Rewrote src/lib/gsap/scroll-reveal.ts to group sibling [data-reveal] elements by parent and animate them as a batch with GSAP stagger (0.1s = 100ms).
+  - Reduced slide distance from 16px to 14px and duration from 0.5s to 0.45s for subtlety.
+  - Added CSS initial state in globals.css: [data-reveal="true"] starts at opacity:0 with will-change:opacity,transform, preventing flash of visible content before GSAP initializes.
+  - Added prefers-reduced-motion media query that sets opacity:1 immediately, matching the reduced-motion GSAP path.
+
+- TASK 5 — Add BackToTop component:
+  - Created src/components/back-to-top.tsx — floating ArrowUp button, fixed bottom-right, appears after 400px scroll, smooth scroll to top, passive scroll listener, proper aria-label.
+  - Added to src/app/(app)/items/page.tsx and src/app/(app)/reminders/page.tsx.
+
+- Lint: Clean (0 errors, 0 warnings) after all changes.
+
+Files modified:
+  - tailwind.config.ts (deleted)
+  - src/hooks/use-supabase-query.ts (created)
+  - src/app/(app)/dashboard/page.tsx (refactored to use hook)
+  - src/app/(app)/settings/page.tsx (improved skeleton)
+  - src/app/(app)/subscriptions/page.tsx (improved skeleton)
+  - src/lib/gsap/scroll-reveal.ts (stagger + parent grouping)
+  - src/app/globals.css (added data-reveal CSS initial state)
+  - src/components/back-to-top.tsx (created)
+  - src/app/(app)/items/page.tsx (added BackToTop)
+  - src/app/(app)/reminders/page.tsx (added BackToTop)
+  - package.json (tailwindcss-animate removed)

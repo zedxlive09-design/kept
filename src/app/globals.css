@@ -199,3 +199,42 @@
     font-variant-numeric: tabular-nums;
   }
 }
+
+/* ============================================================
+ * Scroll-reveal initial state
+ *
+ * Elements marked data-reveal="true" start invisible so GSAP
+ * can animate them in without a flash of fully-visible content.
+ * Reduced-motion users override this to visible immediately.
+ * ============================================================ */
+[data-reveal="true"] {
+  opacity: 0;
+  will-change: opacity, transform;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-reveal="true"] {
+    opacity: 1;
+    will-change: auto;
+  }
+}
+
+/* ============================================================
+ * Page transition keyframes
+ * ============================================================ */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-\[fadeInUp_0\.3s_ease-out\] {
+    animation: none;
+  }
+}

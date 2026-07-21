@@ -143,8 +143,13 @@ export default function DashboardPage() {
             return (
               <div
                 key={card.label}
-                className="bg-card border border-border rounded-lg p-4"
+                className="relative bg-card border border-border rounded-lg p-4 overflow-hidden transition-all duration-200 hover:-translate-y-0.5 hover:shadow-sm"
               >
+                {/* Left accent bar */}
+                <div
+                  className="absolute left-0 top-0 bottom-0 w-1 rounded-l-lg"
+                  style={{ backgroundColor: card.color }}
+                />
                 <Icon
                   className="h-5 w-5 mb-2"
                   style={{ color: card.color }}
@@ -171,7 +176,7 @@ export default function DashboardPage() {
               No upcoming reminders.
             </div>
           ) : (
-            <div className="space-y-2">
+            <div className="bg-card border border-border rounded-lg divide-y divide-border overflow-hidden">
               {upcoming.map((r) => {
                 const itemData = (r as unknown as Record<string, unknown>).items as
                   | { name: string; type: string }
@@ -180,7 +185,7 @@ export default function DashboardPage() {
                   <Link
                     key={r.id}
                     href={`/items/detail?id=${r.item_id}`}
-                    className="bg-card border border-border rounded-lg p-3 flex items-center justify-between hover:bg-muted/50 transition-colors"
+                    className="p-3 flex items-center justify-between hover:bg-muted/50 transition-colors"
                   >
                     <div className="flex items-center gap-2 min-w-0">
                       <span className="text-sm truncate">

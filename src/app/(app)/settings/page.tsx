@@ -143,11 +143,36 @@ export default function SettingsPage() {
 
   if (loading) {
     return (
-      <div className="mx-auto max-w-lg px-4 py-8 space-y-4">
-        <Skeleton className="h-6 w-24" />
-        <Skeleton className="h-10 rounded-md" />
-        <Skeleton className="h-10 rounded-md" />
-        <Skeleton className="h-10 rounded-md" />
+      <div className="mx-auto max-w-lg px-4 py-8 space-y-6">
+        <Skeleton className="h-7 w-24" />
+        {/* Display name field */}
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-28" />
+          <Skeleton className="h-10 w-full rounded-md" />
+        </div>
+        {/* Timezone field */}
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-20" />
+          <Skeleton className="h-10 w-full rounded-md" />
+        </div>
+        {/* Email reminders toggle row */}
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <Skeleton className="h-4 w-28" />
+            <Skeleton className="h-3 w-64" />
+          </div>
+          <Skeleton className="h-6 w-11 rounded-full" />
+        </div>
+        {/* Save button */}
+        <Skeleton className="h-10 w-full rounded-md" />
+        {/* Divider */}
+        <Skeleton className="h-px w-full" />
+        {/* Export section */}
+        <div className="space-y-2">
+          <Skeleton className="h-4 w-24" />
+          <Skeleton className="h-3 w-72" />
+          <Skeleton className="h-10 w-44 rounded-md" />
+        </div>
       </div>
     );
   }

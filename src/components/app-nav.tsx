@@ -34,22 +34,55 @@ function NavLink({
   label,
   active,
   onClick,
+  mobile = false,
 }: {
   href: string;
   label: string;
   active: boolean;
   onClick?: () => void;
+  mobile?: boolean;
 }) {
+  if (mobile) {
+    return (
+      <Link
+        href={href}
+        onClick={onClick}
+        aria-current={active ? "page" : undefined}
+        className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-all duration-200 ${
+          active
+            ? "bg-[var(--accent-color)]/10 text-primary"
+            : "text-muted-foreground hover:text-primary hover:bg-muted"
+        }`}
+      >
+        <span
+          className="h-1.5 w-1.5 rounded-full transition-colors duration-200"
+          style={{
+            backgroundColor: active
+              ? "var(--accent-color)"
+              : "transparent",
+          }}
+        />
+        {label}
+      </Link>
+    );
+  }
+
   return (
     <Link
       href={href}
       onClick={onClick}
       aria-current={active ? "page" : undefined}
-      className={`text-sm font-medium transition-colors hover:text-primary ${
+      className={`relative text-sm font-medium transition-colors duration-200 hover:text-primary ${
         active ? "text-primary" : "text-muted-foreground"
       }`}
     >
       {label}
+      {/* Animated underline indicator */}
+      <span
+        className={`absolute -bottom-1 left-0 right-0 h-0.5 rounded-full bg-[var(--accent-color)] transition-all duration-200 ${
+          active ? "opacity-100 scale-x-100" : "opacity-0 scale-x-0"
+        } origin-left`}
+      />
     </Link>
   );
 }
@@ -59,7 +92,7 @@ export function AppNav() {
   const { signOut, user } = useAuth();
 
   return (
-    <header className="sticky top-0 z-40 w-full border-b border-border bg-card/80 backdrop-blur-sm">
+    <header className="sticky top-0 z-40 w-full border-b border-border bg-card/80 backdrop-blur-sm shadow-[0_1px_3px_rgba(0,0,0,0.03)]">
       <div className="mx-auto flex h-14 max-w-5xl items-center justify-between px-4">
         {/* Logo */}
         <Link
@@ -110,6 +143,7 @@ export function AppNav() {
                     href={link.href}
                     label={link.label}
                     active={pathname === link.href || pathname.startsWith(link.href + "/")}
+                    mobile
                   />
                 ))}
               </nav>

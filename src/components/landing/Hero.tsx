@@ -34,18 +34,46 @@ export function Hero() {
         />
       </noscript>
 
-      {/* Hero glow — soft radial gradient behind the logo, animated by GSAP */}
+      {/* Dot pattern overlay for texture */}
+      <div
+        className="absolute inset-0 pointer-events-none opacity-[0.04]"
+        aria-hidden="true"
+        style={{
+          backgroundImage: `url("data:image/svg+xml,%3Csvg width='24' height='24' xmlns='http://www.w3.org/2000/svg'%3E%3Ccircle cx='2' cy='2' r='1' fill='white'/%3E%3C/svg%3E")`,
+          backgroundSize: '24px 24px',
+        }}
+      />
+
+      {/* Hero glow — multi-layer radial gradient for realistic light */}
       <div
         className="hero-glow absolute inset-0 pointer-events-none opacity-0"
         aria-hidden="true"
       >
+        {/* Inner bright core */}
         <div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] h-[480px] bg-[radial-gradient(circle,rgba(61,122,92,0.3)_0%,transparent_70%)]"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[240px] h-[240px] bg-[radial-gradient(circle,rgba(77,153,114,0.45)_0%,transparent_70%)]"
+        />
+        {/* Mid glow */}
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[480px] h-[480px] bg-[radial-gradient(circle,rgba(61,122,92,0.25)_0%,transparent_70%)]"
+        />
+        {/* Outer soft bloom */}
+        <div
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[720px] h-[720px] bg-[radial-gradient(circle,rgba(61,122,92,0.1)_0%,transparent_70%)]"
         />
       </div>
 
+      {/* Bottom gradient fade — hero to paper transition */}
+      <div
+        className="absolute bottom-0 left-0 right-0 h-24 pointer-events-none"
+        aria-hidden="true"
+        style={{
+          background: 'linear-gradient(to bottom, transparent, var(--paper))',
+        }}
+      />
+
       {/* Content */}
-      <div className="relative z-10 flex flex-col items-center justify-center px-6 pt-24 pb-20 md:pt-32 md:pb-28 text-center max-w-2xl mx-auto">
+      <div className="relative z-10 flex flex-col items-center justify-center px-6 pt-24 pb-28 md:pt-32 md:pb-36 text-center max-w-2xl mx-auto">
         {/* Two-tone logo — design doc §4, animated by GSAP */}
         <div className="mb-8">
           <Image
@@ -73,7 +101,7 @@ export function Hero() {
         <div className="hero-cta mt-8 opacity-0">
           <Link
             href="/signup"
-            className="inline-flex items-center justify-center h-12 px-8 rounded-lg bg-[var(--accent-color)] text-[var(--paper)] font-medium text-base transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--hero-bg)]"
+            className="inline-flex items-center justify-center h-12 px-8 rounded-lg bg-[var(--accent-color)] text-[var(--paper)] font-medium text-base transition-all duration-200 hover:scale-[1.03] hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--accent-color)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--hero-bg)]"
           >
             Get started free
           </Link>

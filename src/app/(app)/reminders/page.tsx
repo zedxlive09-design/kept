@@ -8,6 +8,7 @@ import { formatDate } from '@/lib/format';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { BackToTop } from '@/components/back-to-top';
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -295,6 +296,7 @@ export default function RemindersPage() {
           )}
         </TabsContent>
       </Tabs>
+      <BackToTop />
     </div>
   );
 }
