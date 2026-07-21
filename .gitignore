@@ -25,6 +25,7 @@ yarn-debug.log*
 yarn-error.log*
 dev.log
 server.log
+*.log
 
 # IDE
 .idea/
@@ -36,17 +37,19 @@ server.log
 .DS_Store
 Thumbs.db
 
-# Supabase
+# Supabase local
 supabase/.temp/
 
-# Tool results (not part of the project)
+# Tool / agent artifacts (not part of Kept)
 tool-results/
 upload/
 download/
+agent-ctx/
+.zscripts/
 
-# Database (local Prisma — not part of Kept spec)
+# Sandbox infrastructure (not part of Kept)
+examples/
+mini-services/
+Caddyfile
 db/*.db
 prisma/
-
-# Misc
-*.log
