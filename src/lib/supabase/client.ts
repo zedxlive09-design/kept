@@ -14,13 +14,34 @@ import { createClient } from "@supabase/supabase-js";
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
-  throw new Error(
-    'Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local'
-  );
+/**
+ * Lazy-initialized Supabase client.
+ *
+ * We defer creation (and the env-var guard) to first access so that
+ * Turbopack can pre-compile routes that *import* this module (e.g. the
+ * app layout) without crashing the dev server when env vars are absent.
+ * In production the vars are always present at build time.
+ */
+let _client: ReturnType<typeof createClient> | null = null;
+
+function getClient() {
+  if (_client) return _client;
+  if (!supabaseUrl || !supabaseAnonKey) {
+    throw new Error(
+      'Missing Supabase environment variables. Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in .env.local'
+    );
+  }
+  _client = createClient(supabaseUrl, supabaseAnonKey);
+  return _client;
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+// Named re-export so existing `import { supabase }` continues to work.
+// Uses a getter so every access goes through getClient().
+export const supabase = new Proxy({} as ReturnType<typeof createClient>, {
+  get(_target, prop, receiver) {
+    return Reflect.get(getClient(), prop, receiver);
+  },
+});
 
 // Type helpers — mirror the SQL schema from §5 for use in application code.
 // These are NOT a separate source of truth; the SQL migrations (supabase/migrations/)
