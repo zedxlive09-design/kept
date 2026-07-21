@@ -158,7 +158,7 @@ export function AIReviewForm({ file, imagePreviewUrl, onStartOver }: AIReviewFor
     merchant: result.merchant || '',
     amount: result.amount ?? null,
     currency: result.currency || 'USD',
-    category: result.suggested_category || 'Other',
+    category: (result.suggested_category || 'other').toLowerCase(),
     notes: '',
     purchase_date: result.purchase_date || null,
     warranty_months: null, // NEVER pre-filled by AI

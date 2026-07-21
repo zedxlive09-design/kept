@@ -16,7 +16,7 @@ import { cn } from '@/lib/utils';
  * alter the filter logic (injection prevention).
  */
 function escapePostgrestFilter(value: string): string {
-  return value.replace(/[.,)(*'%\\]/g, '\\$&');
+  return value.replace(/[.,)(*'%\\_]/g, '\\$&');
 }
 
 const PAGE_SIZE = 20;

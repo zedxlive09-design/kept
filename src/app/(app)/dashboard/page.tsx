@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { ShieldCheck, AlertTriangle, XCircle, CreditCard, Bell, Plus, PackageOpen, Clock } from 'lucide-react';
 import { supabase, type Item, type DashboardSummary, type Reminder } from '@/lib/supabase/client';
+import { formatDate } from '@/lib/format';
 import { ItemCard } from '@/components/items/ItemCard';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -196,7 +197,7 @@ export default function DashboardPage() {
                       </span>
                     </div>
                     <span className="text-sm font-mono tabular-nums text-muted-foreground shrink-0 ml-2">
-                      {r.remind_on}
+                      {formatDate(r.remind_on)}
                     </span>
                   </Link>
                 );
